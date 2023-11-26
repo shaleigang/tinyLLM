@@ -40,8 +40,8 @@ public:
     static Minus& get();
 
 private:
-    void forward_process(Tensor& x1, Tensor& x) override;
-    void grad_fn(TensorImplPtr x1, TensorImplPtr x) override;
+    virtual void forward_process(Tensor& x1, Tensor& x) override;
+    virtual void grad_fn(TensorImplPtr x1, TensorImplPtr x) override;
 };
 
 class Add : public BinaryExp {
@@ -49,9 +49,9 @@ public:
     static Add& get();
 
 private:
-    void forward_process(Tensor& x1, Tensor& x2, Tensor& x) override;
-    void lhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2, TensorImplPtr x) override;
-    void rhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2, TensorImplPtr x) override;
+    virtual void forward_process(Tensor& x1, Tensor& x2, Tensor& x) override;
+    virtual void lhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2, TensorImplPtr x) override;
+    virtual void rhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2, TensorImplPtr x) override;
 };
 
 class Sub : public BinaryExp {
@@ -59,20 +59,20 @@ public:
     static Sub& get();
 
 private:
-    void forward_process(Tensor& x1, Tensor& x2, Tensor& x) override;
-    void lhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2, TensorImplPtr x) override;
-    void rhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2, TensorImplPtr x) override;
+    virtual void forward_process(Tensor& x1, Tensor& x2, Tensor& x) override;
+    virtual void lhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2, TensorImplPtr x) override;
+    virtual void rhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2, TensorImplPtr x) override;
 };
 
-// class Mul : public BinaryExp {
-// public:
-//     static Mul& get();
+class Mul : public BinaryExp {
+public:
+    static Mul& get();
 
-// private:
-//     void forward_process(Tensor& x1, Tensor& x2, Tensor& x) override;
-//     void lhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2, TensorImplPtr x) override;
-//     void rhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2, TensorImplPtr x) override;
-// };
+private:
+    virtual void forward_process(Tensor& x1, Tensor& x2, Tensor& x) override;
+    virtual void lhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2, TensorImplPtr x) override;
+    virtual void rhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2, TensorImplPtr x) override;
+};
 
 }
 

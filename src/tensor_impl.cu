@@ -28,20 +28,12 @@ TensorImpl::TensorImpl(std::initializer_list<index_t> dims, string device,
   // malloc for data_ and grad_
   if (device_ == "cpu") {
     data_ = (float*)malloc(sizeof(float) * stride);
-    if (require_grad_) {
-      grad_ = (float*)malloc(sizeof(float) * stride);
-      memset(grad_, 0, sizeof(float) * stride);
-    } else {
-      grad_ = nullptr;
-    }
+    grad_ = (float*)malloc(sizeof(float) * stride);
+    memset(grad_, 0, sizeof(float) * stride);
   } else if (device_ == "cuda") {
     cudaMalloc((void**)&data_, sizeof(float) * stride);
-    if (require_grad_) {
-      cudaMalloc((void**)&grad_, sizeof(float) * stride);
-      cudaMemset(grad_, 0, sizeof(float) * stride);
-    } else {
-      grad_ = nullptr;
-    }
+    cudaMalloc((void**)&grad_, sizeof(float) * stride);
+    cudaMemset(grad_, 0, sizeof(float) * stride);
   } else {
     std::cout << "Not support device." << std::endl;
     exit(0);
@@ -63,20 +55,13 @@ TensorImpl::TensorImpl(std::vector<index_t> dims, string device,
   // malloc for data_ and grad_
   if (device_ == "cpu") {
     data_ = (float*)malloc(sizeof(float) * stride);
-    if (require_grad_) {
-      grad_ = (float*)malloc(sizeof(float) * stride);
-      memset(grad_, 0, sizeof(float) * stride);
-    } else {
-      grad_ = nullptr;
-    }
+    grad_ = (float*)malloc(sizeof(float) * stride);
+    memset(grad_, 0, sizeof(float) * stride);
+
   } else if (device_ == "cuda") {
     cudaMalloc((void**)&data_, sizeof(float) * stride);
-    if (require_grad_) {
-      cudaMalloc((void**)&grad_, sizeof(float) * stride);
-      cudaMemset(grad_, 0, sizeof(float) * stride);
-    } else {
-      grad_ = nullptr;
-    }
+    cudaMalloc((void**)&grad_, sizeof(float) * stride);
+    cudaMemset(grad_, 0, sizeof(float) * stride);
   } else {
     std::cout << "Not support device." << std::endl;
     exit(0);
@@ -93,17 +78,13 @@ TensorImpl::TensorImpl(const TensorImpl& t)
   if (device_ == "cpu") {
     data_ = (float*)malloc(sizeof(float) * t.dsize());
     std::memcpy(data_, t.data_, sizeof(float) * t.dsize());
-    if (require_grad_) {
-      grad_ = (float*)malloc(sizeof(float) * t.dsize());
-      std::memcpy(grad_, t.grad_, sizeof(float) * t.dsize());
-    }
+    grad_ = (float*)malloc(sizeof(float) * t.dsize());
+    std::memcpy(grad_, t.grad_, sizeof(float) * t.dsize());
   } else {
     cudaMalloc((void**)&data_, sizeof(float) * t.dsize());
     cudaMemcpy(data_, t.data_, sizeof(float) * t.dsize(), cudaMemcpyDeviceToDevice);
-    if (require_grad_) {
-      cudaMalloc((void**)&grad_, sizeof(float) * t.dsize());
-      cudaMemcpy(grad_, t.grad_, sizeof(float) * t.dsize(), cudaMemcpyDeviceToDevice);
-    }
+    cudaMalloc((void**)&grad_, sizeof(float) * t.dsize());
+    cudaMemcpy(grad_, t.grad_, sizeof(float) * t.dsize(), cudaMemcpyDeviceToDevice);
   }
 }
 
@@ -124,14 +105,10 @@ TensorImpl::TensorImpl(TensorImpl&& t) {
 TensorImpl::~TensorImpl() {
   if (device_ == "cpu") {
     free(data_);
-    if (require_grad_) {
-      free(grad_);
-    }
+    free(grad_);
   } else {
     cudaFree(data_);
-    if (require_grad_) {
-      cudaFree(grad_);
-    }
+    cudaFree(grad_);
   }
 }
 
@@ -147,20 +124,16 @@ TensorImpl& TensorImpl::operator=(const TensorImpl& t) {
     free(data_);
     data_ = (float*)malloc(sizeof(float) * t.dsize());
     std::memcpy(data_, t.data_, sizeof(float) * t.dsize());
-    if (require_grad_) {
-      free(grad_);
-      grad_ = (float*)malloc(sizeof(float) * t.dsize());
-      std::memcpy(grad_, t.grad_, sizeof(float) * t.dsize());
-    }
+    free(grad_);
+    grad_ = (float*)malloc(sizeof(float) * t.dsize());
+    std::memcpy(grad_, t.grad_, sizeof(float) * t.dsize());
   } else {
     cudaFree(data_);
     cudaMalloc((void**)&data_, sizeof(float) * t.dsize());
     cudaMemcpy(data_, t.data_, sizeof(float) * t.dsize(), cudaMemcpyDeviceToDevice);
-    if (require_grad_) {
-      cudaFree(grad_);
-      cudaMalloc((void**)&grad_, sizeof(float) * t.dsize());
-      cudaMemcpy(grad_, t.grad_, sizeof(float) * t.dsize(), cudaMemcpyDeviceToDevice);
-    }
+    cudaFree(grad_);
+    cudaMalloc((void**)&grad_, sizeof(float) * t.dsize());
+    cudaMemcpy(grad_, t.grad_, sizeof(float) * t.dsize(), cudaMemcpyDeviceToDevice);
   }
   return *this;
 }
@@ -253,13 +226,26 @@ float TensorImpl::operator[](index_t offset) const {
   }
 }
 
-// TensorImpl TensorImpl::operator+(TensorImpl& t) {
-//   return detail::Add::get().forward(*this, t);
-// }
+index_t TensorImpl::get_offset(std::initializer_list<index_t> ids) const {
+  assert(ids.size() == ndim());
+  index_t offset = 0, i = 0;
+  for (auto index : ids) {
+    assert(index < dims_[i]);
+    offset += index * stride_[i++];
+  }
+  return offset;
+}
 
-// TensorImpl TensorImpl::operator-(TensorImpl& t) {
-//   return detail::Sub::get().forward(*this, t);
-// }
+
+index_t TensorImpl::get_offset(std::vector<index_t> ids) const {
+  assert(ids.size() == ndim());
+  index_t offset = 0, i = 0;
+  for (auto index : ids) {
+    assert(index < dims_[i]);
+    offset += index * stride_[i++];
+  }
+  return offset;
+}
 
 void TensorImpl::transpose(index_t dim1, index_t dim2) {
   std::swap(dims_[dim1], dims_[dim2]);
@@ -285,6 +271,24 @@ void TensorImpl::view(std::initializer_list<index_t> dims) {
   }
 }
 
+void TensorImpl::view(std::vector<index_t> dims) {
+  assert(is_contiguous());
+  std::vector<index_t> newDims;
+  index_t newDsize = 1;
+  for (auto d : dims) {
+    newDims.push_back(d);
+    newDsize *= d;
+  }
+  assert(newDsize == dsize());
+  dims_ = newDims;
+  index_t stride = 1;
+  stride_ = std::vector<index_t>(newDims.size(), 0);
+  for (int i = newDims.size() - 1; i >= 0; --i) {
+    stride_[i] = stride;
+    stride *= newDims[i];
+  }
+}
+
 void TensorImpl::to(string dev) {
   assert(dev == "cpu" || dev == "cuda");
   if (dev == device_) return;
@@ -293,27 +297,23 @@ void TensorImpl::to(string dev) {
     cudaMemcpy(newData, data_, sizeof(float) * dsize_, cudaMemcpyDeviceToHost);
     cudaFree(data_);
     data_ = newData;
-    if (require_grad_) {
-      float* newGrad = (float*)malloc(sizeof(float) * dsize_);
-      cudaMemcpy(newGrad, grad_, sizeof(float) * dsize_,
+    float* newGrad = (float*)malloc(sizeof(float) * dsize_);
+    cudaMemcpy(newGrad, grad_, sizeof(float) * dsize_,
                  cudaMemcpyDeviceToHost);
-      cudaFree(grad_);
-      grad_ = newGrad;
-    }
+    cudaFree(grad_);
+    grad_ = newGrad;
   } else {
     float* newData = nullptr;
     cudaMalloc((void**)&newData, sizeof(float) * dsize_);
     cudaMemcpy(newData, data_, sizeof(float) * dsize_, cudaMemcpyHostToDevice);
     free(data_);
     data_ = newData;
-    if (require_grad_) {
-      float* newGrad = nullptr;
-      cudaMalloc((void**)&newGrad, sizeof(float) * dsize_);
-      cudaMemcpy(newGrad, grad_, sizeof(float) * dsize_,
+    float* newGrad = nullptr;
+    cudaMalloc((void**)&newGrad, sizeof(float) * dsize_);
+    cudaMemcpy(newGrad, grad_, sizeof(float) * dsize_,
                  cudaMemcpyHostToDevice);
-      free(grad_);
-      grad_ = newGrad;
-    }
+    free(grad_);
+    grad_ = newGrad;
   }
   device_ = dev;
 }
@@ -360,8 +360,7 @@ void TensorImpl::contiguous() {
     }
     free(data_);
     data_ = newData;
-
-    if (require_grad_) {
+    {
       float* newGrad = (float*)malloc(sizeof(float) * dsize());
       int count = 0;
       std::vector<index_t> pos(dims_.size(), 0);
@@ -407,8 +406,7 @@ void TensorImpl::contiguous() {
 
     cudaFree(data_);
     data_ = newData;
-
-    if (require_grad_) {
+    {
       float* newGrad = nullptr;
       cudaMalloc((void**)&newGrad, dsize_ * sizeof(float));
 
@@ -476,14 +474,12 @@ std::ostream& operator<<(std::ostream& out, TensorImpl& t) {
         }
     }
 
-    if (t.require_grad_) {
         out << "grad: " << std::endl;
         for(int i = 0; i < t.dsize(); ++i) {
             out << t.grad_[i] << ", ";
             if ((i + 1) % col == 0) {
                 out << std::endl;
         }
-    }
     }
     t.to(old_device);
     
@@ -536,26 +532,15 @@ UnaryGraphNode::UnaryGraphNode(TensorImplPtr t)
   : t_(t) { }
 
 void UnaryGraphNode::backward(TensorImplPtr t) {
-  if (t_->require_grad()) {
-    grad_fn_(t_, t);
-    t_->backward();
-  }
+  grad_fn_(t_, t);
 }
 
 BinaryGraphNode::BinaryGraphNode(TensorImplPtr tl, TensorImplPtr tr)
   : tl_(tl), tr_(tr) { }
 
 void BinaryGraphNode::backward(TensorImplPtr t) {
-  if (tl_->require_grad()) {
-    grad_fn_l_(tl_, tr_, t);
-  }
-  if (tr_->require_grad()) {
-    grad_fn_r_(tl_, tr_, t);
-  }
-  if (tl_->require_grad()) {
-    tl_->backward();
-  }
-  if (tr_->require_grad()) {
-    tr_->backward();
-  }
+  grad_fn_l_(tl_, tr_, t);
+  grad_fn_r_(tl_, tr_, t);
+  tl_->backward();
+  tr_->backward();
 }

@@ -37,9 +37,12 @@ public:
     float operator[](std::vector<index_t> ids) const;
     float& operator[](index_t offset);
     float operator[](index_t offset) const;
+    index_t get_offset(std::initializer_list<index_t> ids) const;
+    index_t get_offset(std::vector<index_t> ids) const;
 
     void transpose(index_t dim1, index_t dim2);
     void view(std::initializer_list<index_t> dims);
+    void view(std::vector<index_t> dims);
 
     string device() const { return device_; }
     void to(string dev);

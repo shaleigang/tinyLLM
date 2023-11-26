@@ -12,6 +12,8 @@ using std::placeholders::_3;
 __global__ void add_kernel(float* ret, float* data1, float* data2, index_t dsize);
 __global__ void sub_kernel(float* ret, float* data1, float* data2, index_t dsize);
 __global__ void minus_kernel(float* ret, float* data1, index_t dsize);
+__global__ void mul_kernel(float* ret, float* data1, float* data2, index_t dsize);
+__global__ void mul_backward_kernel(float* ret, float* data1, float* data2, index_t dsize);
 
 Tensor UnaryExp::forward(Tensor& x1) {
     Tensor x = generate_ret_tensor(x1);
@@ -28,11 +30,12 @@ void UnaryExp::prepare_forward(Tensor& x1, Tensor& x) {
     // 1. check
 
     // 2. add node to return Tensor
-    GraphNodePtr node = std::make_shared<UnaryGraphNode>(x.get());
+    GraphNodePtr node = std::make_shared<UnaryGraphNode>(x1.get());
     node->setGradFn(std::bind(&UnaryExp::grad_fn, this, _1, _2));
     x.setNode(node);
 
     // 3.increase input Tensor ref count and contiguous
+
     x1.increaseRef();
     x1.contiguous();
 
@@ -238,17 +241,71 @@ void Sub::rhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2, TensorImplPtr x) {
     x2->decreaseRef();
 }
 
-// void Mul::forward_process(Tensor& x1, Tensor& x2, Tensor& x) {
+void Mul::forward_process(Tensor& x1, Tensor& x2, Tensor& x) {
 
-//     if (x1.device() == "cpu") {
-//         //TODO
-//         return;
-//     }
-//     else {
-//         const int block_size = 256;
-//         const int grid_size = (x1.dsize() + 255) / 256;
-//         add_kernel<<<grid_size, block_size>>>(ret.data(), x1.data(), x2.data(), x1.dsize());
-//         ret.setNode(node);
-//         return ret;
-//     }
-// }
+    if (x1.device() == "cpu") {
+        for (int i = 0; i < x1.dsize(); ++i) {
+            x[i] = x1[i] * x2[i];
+        }
+        return;
+    }
+    else {
+        const int block_size = 256;
+        const int grid_size = (x1.dsize() + 255) / 256;
+        mul_kernel<<<grid_size, block_size>>>(x.data(), x1.data(), x2.data(), x1.dsize());
+        return;
+    }
+}
+
+Mul& Mul::get() {
+    static Mul mul_;
+    return mul_;
+}
+
+__global__ void mul_kernel(float* ret, float* data1, float* data2, index_t dsize) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < dsize) {
+        ret[idx] = data1[idx] * data2[idx];
+    }
+}
+
+void Mul::lhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2, TensorImplPtr x) {
+    // 1. cal grad
+    if (x1->device() == "cpu") {
+        for (int i = 0; i < x1->dsize(); ++i) {
+            x1->grad_[i] += (x->grad_[i] * (*x2)[i]);
+        }
+    }
+    else {
+        const int block_size = 256;
+        const int grid_size = (x1->dsize() + 255) / 256;
+        mul_backward_kernel<<<grid_size, block_size>>>(x1->grad_, x->grad_, x2->data_, x1->dsize());
+    }
+
+    // 2. decrease ref count
+    x1->decreaseRef();
+}
+
+void Mul::rhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2, TensorImplPtr x) {
+    // 1. cal grad
+    if (x2->device() == "cpu") {
+        for (int i = 0; i < x2->dsize(); ++i) {
+            x2->grad_[i] += (x->grad_[i] * (*x1)[i]);
+        }
+    }
+    else {
+        const int block_size = 256;
+        const int grid_size = (x2->dsize() + 255) / 256;
+        mul_backward_kernel<<<grid_size, block_size>>>(x2->grad_, x->grad_, x1->data_, x2->dsize());
+    }
+
+    // 2. decrease ref count
+    x2->decreaseRef();
+}
+
+__global__ void mul_backward_kernel(float* ret, float* data1, float* data2, index_t dsize) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < dsize) {
+        ret[idx] += (data1[idx] * data2[idx]);
+    }
+}

@@ -77,11 +77,23 @@ float Tensor::operator[](index_t offset) const {
     return tensor_->operator[](offset);
 }
 
+index_t Tensor::get_offset(std::initializer_list<index_t> ids) const {
+    tensor_->get_offset(std::move(ids));
+}
+
+index_t Tensor::get_offset(std::vector<index_t> ids) const {
+    tensor_->get_offset(std::move(ids));
+}
+
 void Tensor::transpose(index_t dim1, index_t dim2) {
     tensor_->transpose(dim1, dim2);
 }
 
 void Tensor::view(std::initializer_list<index_t> dims) {
+    tensor_->view(std::move(dims));
+}
+
+void Tensor::view(std::vector<index_t> dims) {
     tensor_->view(std::move(dims));
 }
 
@@ -160,6 +172,10 @@ Tensor Tensor::operator-(Tensor& t) {
 
 Tensor Tensor::operator-() {
     return detail::Minus::get().forward(*this);
+}
+
+Tensor Tensor::operator*(Tensor& t) {
+    return detail::Mul::get().forward(*this, t);
 }
 
 
