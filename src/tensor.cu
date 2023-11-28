@@ -178,6 +178,14 @@ Tensor Tensor::operator*(Tensor& t) {
     return detail::Mul::get().forward(*this, t);
 }
 
+Tensor Tensor::operator+(float val) {
+    return std::make_shared<detail::ScalarAdd>(val)->forward(*this);
+}
+
+Tensor Tensor::operator*(float val) {
+    return std::make_shared<detail::ScalarMul>(val)->forward(*this);
+}
+
 
 
 

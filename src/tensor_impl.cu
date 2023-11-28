@@ -533,6 +533,8 @@ UnaryGraphNode::UnaryGraphNode(TensorImplPtr t)
 
 void UnaryGraphNode::backward(TensorImplPtr t) {
   grad_fn_(t_, t);
+  t_->decreaseRef();
+  t_->backward();
 }
 
 BinaryGraphNode::BinaryGraphNode(TensorImplPtr tl, TensorImplPtr tr)
@@ -541,6 +543,8 @@ BinaryGraphNode::BinaryGraphNode(TensorImplPtr tl, TensorImplPtr tr)
 void BinaryGraphNode::backward(TensorImplPtr t) {
   grad_fn_l_(tl_, tr_, t);
   grad_fn_r_(tl_, tr_, t);
+  tl_->decreaseRef();
+  tr_->decreaseRef();
   tl_->backward();
   tr_->backward();
 }

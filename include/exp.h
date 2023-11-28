@@ -17,6 +17,7 @@ public:
 private:
     virtual Tensor generate_ret_tensor(Tensor& x1);
     virtual void prepare_forward(Tensor& x1, Tensor& x);
+    virtual void increase_ref_contiguous(Tensor& x1);
     virtual void forward_process(Tensor& x1, Tensor& x) = 0;
 
     virtual void grad_fn(TensorImplPtr x1, TensorImplPtr x) = 0;
@@ -29,6 +30,7 @@ public:
 private:
     virtual Tensor generate_ret_tensor(Tensor& x1, Tensor& x2);
     virtual void prepare_forward(Tensor& x1, Tensor& x2, Tensor& x);
+    virtual void increase_ref_contiguous(Tensor& x1, Tensor& x2);
     virtual void forward_process(Tensor& x1, Tensor& x2, Tensor& x) = 0;
 
     virtual void lhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2, TensorImplPtr x) = 0;
@@ -72,6 +74,34 @@ private:
     virtual void forward_process(Tensor& x1, Tensor& x2, Tensor& x) override;
     virtual void lhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2, TensorImplPtr x) override;
     virtual void rhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2, TensorImplPtr x) override;
+};
+
+class ScalarAdd : public UnaryExp,
+                    public std::enable_shared_from_this<ScalarAdd> {
+public:
+    ScalarAdd(float val);
+
+private:
+    virtual void prepare_forward(Tensor& x1, Tensor& x) override;
+    virtual void forward_process(Tensor& x1, Tensor& x) override;
+
+    virtual void grad_fn(TensorImplPtr x1, TensorImplPtr x) override;
+
+    float val_;
+};
+
+class ScalarMul : public UnaryExp,
+                    public std::enable_shared_from_this<ScalarMul> {
+public:
+    ScalarMul(float val);
+
+private:
+    virtual void prepare_forward(Tensor& x1, Tensor& x) override;
+    virtual void forward_process(Tensor& x1, Tensor& x) override;
+
+    virtual void grad_fn(TensorImplPtr x1, TensorImplPtr x) override;
+
+    float val_;
 };
 
 }

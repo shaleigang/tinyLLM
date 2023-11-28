@@ -60,6 +60,8 @@ public:
     Tensor operator-(Tensor& t);
     Tensor operator-();
     Tensor operator*(Tensor& t);
+    Tensor operator+(float val);
+    Tensor operator*(float val);
 
 private:
     TensorImplPtr tensor_;

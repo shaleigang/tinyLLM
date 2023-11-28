@@ -16,6 +16,7 @@ public:
 
 private:
     virtual Tensor generate_ret_tensor(Tensor& x1, Tensor& x2) override;
+    virtual void prepare_forward(Tensor& x1, Tensor& x2, Tensor& x) override;
     virtual void forward_process(Tensor& x1, Tensor& x2, Tensor& x) override;
 
     virtual void lhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2, TensorImplPtr x) override;
