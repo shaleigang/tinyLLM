@@ -27,9 +27,9 @@ int main() {
 
     // Tensor t3 = t1 * t2;
 
-    // nn::Linear linear(3, 6);
+    nn::Linear linear(3, 6, false);
     // linear.to("cuda");
-    // Tensor t3 = linear.forward(t2);
+    Tensor t5 = linear.forward(t4);
 
     // Tensor t2(t1);
     // Tensor t3 = MatMul(t1, t2);
@@ -41,12 +41,12 @@ int main() {
     // Tensor t6 = t4 * t1;
 
     // t3.to("cpu");
-    for (int i = 0; i < t4.dsize(); ++i) {
-        t4.grad()[i] = 1;
+    for (int i = 0; i < t5.dsize(); ++i) {
+        t5.grad()[i] = 1;
     }
 
     // t3.to("cuda");
-    t4.backward();
+    t5.backward();
 
 
     // t1.apply_grad(0.1);
@@ -59,9 +59,9 @@ int main() {
     std::cout << t1 <<std::endl;
     std::cout << t2 <<std::endl;
     std::cout << t3 <<std::endl;
-    // linear.print();
+    linear.print();
     std::cout << t4 <<std::endl;
-    // std::cout << t5 <<std::endl;
+    std::cout << t5 <<std::endl;
     // std::cout << t6 <<std::endl;
 
     return 0;

@@ -20,7 +20,7 @@ public:
 
 class Linear : public Module {
 public:
-    Linear(index_t in_features, index_t out_features);
+    Linear(index_t in_features, index_t out_features, bool bias=true);
     Linear(const Linear& other) = delete;
     ~Linear() = default;
 
@@ -30,6 +30,7 @@ public:
 protected:
     Tensor weight_;
     Tensor bias_;
+    bool require_bias_;
 };
 
 }

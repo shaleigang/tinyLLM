@@ -17,29 +17,45 @@ void Module::to(string device) {
     }
 }
 
-Linear::Linear(index_t in_features, index_t out_features)
+Linear::Linear(index_t in_features, index_t out_features, bool bias)
   : weight_(Tensor({in_features, out_features})),
-    bias_(Tensor({out_features})) {
+    require_bias_(bias) {
+    if (require_bias_) {
+        bias_ = Tensor({out_features});
+    }
     for (int i = 0; i < (in_features * out_features); ++i) {
         weight_[i] = i;
     }
-    for (int i = 0; i < (out_features); ++i) {
-        bias_[i] = i;
-    }  
+    if (require_bias_) {
+        for (int i = 0; i < (out_features); ++i) {
+            bias_[i] = i;
+        } 
+    } 
 }
 
 Tensor Linear::forward(Tensor& input) {
     Tensor ret = MatMul(input, weight_);
-    Tensor ret2 = ret + bias_;
-    return ret2;
-    // return MatMul(input, weight_) + bias_;
+    if (require_bias_) {
+        Tensor ret2 = ret + bias_;
+        return ret2;
+    }
+    else {
+        return ret;
+    }
 }
 
 ParamsDict Linear::parameters() {
-    return {
-        {"weight", weight_},
-        {"bias", bias_}
-    };
+    if (require_bias_) {
+        return {
+            {"weight", weight_},
+            {"bias", bias_}
+        };
+    }
+    else {
+        return {
+            {"weight", weight_}
+        };
+    }
 }
 
 
