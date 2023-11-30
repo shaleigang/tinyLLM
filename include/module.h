@@ -54,6 +54,7 @@ private:
 };
 
 using detail::Dropout;
+using detail::GELU;
 
 }
 }

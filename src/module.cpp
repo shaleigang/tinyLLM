@@ -43,7 +43,7 @@ Linear::Linear(index_t in_features, index_t out_features, bool bias)
 }
 
 Tensor Linear::forward(Tensor& input) {
-    Tensor ret = mat_mul(input, weight_);
+    Tensor ret = F::mat_mul(input, weight_);
     if (require_bias_) {
         Tensor ret2 = ret + bias_;
         return ret2;
@@ -84,7 +84,7 @@ LayerNorm::LayerNorm(index_t n_dim, bool bias)
 }
 
 Tensor LayerNorm::forward(Tensor& input) {
-    Tensor x1 = layer_norm(input);
+    Tensor x1 = F::layer_norm(input);
     Tensor x2 = x1 * weight_;
     if (require_bias_) {
         Tensor x3 = x2 + bias_;

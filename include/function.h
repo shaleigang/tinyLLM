@@ -59,10 +59,34 @@ private:
     std::uniform_int_distribution<int> di;
 };
 
+class GELU : public UnaryFunc {
+public:
+    GELU() = default;
+
+private:
+    virtual void forward_process(Tensor& x1, Tensor& x) override;
+    virtual void grad_fn(TensorImplPtr x1, TensorImplPtr x) override;
+
+};
+
+class Softmax : public UnaryFunc {
+public:
+    Softmax() = default;
+
+private:
+    virtual void forward_process(Tensor& x1, Tensor& x) override;
+    virtual void grad_fn(TensorImplPtr x1, TensorImplPtr x) override;
+
+};
+
 }
 
+namespace F {
 extern detail::MatMulExp mat_mul;
 extern detail::LayerNorm layer_norm;
+extern detail::Softmax softmax;
+
+}
 
 
 }

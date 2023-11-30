@@ -12,11 +12,11 @@ int main() {
     }
     t1.to("cuda");
 
-    // nn::LayerNorm norm(3);
-    // norm.to("cuda");
-    nn::Dropout dropout(0.5);
+    nn::LayerNorm norm(3);
+    norm.to("cuda");
+    // nn::Dropout dropout(0.5);
 
-    Tensor t2 = dropout(t1);
+    Tensor t2 = norm(t1);
 
     // std::cout << t1 <<std::endl;
     // std::cout << t2 <<std::endl;
@@ -50,7 +50,10 @@ int main() {
 
     t2.to("cpu");
     for (int i = 0; i < t2.dsize(); ++i) {
-        t2.grad()[i] = i + 2;
+        t2.grad()[i] = 1;
+        if ((i - 1) % 3 == 0) {
+            t2.grad()[i] = 10;
+        }
     }
 
     t2.to("cuda");

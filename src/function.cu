@@ -14,9 +14,11 @@ using std::placeholders::_2;
 using std::placeholders::_3;
 
 namespace tllm {
-
+namespace F {
 detail::MatMulExp mat_mul;
 detail::LayerNorm layer_norm(0.00001);
+detail::Softmax softmax;
+}
 }
 
 __global__ void matmul_kernel(float* x, float* x1, float* x2, index_t z_, index_t y_, index_t x_, index_t d_, index_t dsize2);
@@ -25,6 +27,11 @@ __global__ void layer_norm_kernel(float* x1, float* x, int N, index_t dim, index
 __global__ void layer_norm_backward_kernel(float* x1_grad, float* x1_data, float* x_grad, int N, index_t dim, index_t dsize, float ep);
 __global__ void drouput_kernel(float* x1, float* x, float prob, index_t dsize, unsigned long long seed);
 __global__ void dropout_backward_kernel(float* x1_grad, float* x_grad, float* x_data, float prob, index_t dsize);
+__global__ void gelu_kernel(float* x1, float* x, index_t dsize);
+__global__ void gelu_backward_kernel(float* x1_grad, float* x1_data, float* x_grad, index_t dsize);
+__global__ void softmax_kernel(float* x1, float* x, int N, index_t dim, index_t dsize);
+__global__ void softmax_kernel(float* x1, float* x, int N, index_t dim, index_t dsize);
+__global__ void softmax_backward_kernel(float* x1_grad, float* x1_data, float* x_grad, float* x_data, int N, index_t dim, index_t dsize);
 
 Tensor UnaryFunc::operator()(Tensor& x1) {
     return forward(x1);
@@ -446,21 +453,62 @@ __global__ void layer_norm_backward_kernel(float* x1_grad, float* x1_data, float
     for (int i = 0; i < N; ++i) {
         int offset = thread_idx * N + i;
         if (offset < dim && head_offset + offset < dsize) {
-            data[offset] = x1_data[head_offset + offset];
+            data[offset] = a1 * x_grad[head_offset + offset];
         }
         else {
             data[offset] = 0;
         }
     }
     __syncthreads();
+    for (int gap = blockDim.x * N >> 1; gap > 0; gap >>= 1) {
+        for (int i = 0; i < N; ++i) {
+            int offset = thread_idx * N + i;
+            if (offset < gap) {
+                data[offset] += data[offset + gap];
+            }
+        }
+    }
+    __syncthreads();
+    float p1 = data[0];
+
+    for (int i = 0; i < N; ++i) {
+        int offset = thread_idx * N + i;
+        if (offset < dim && head_offset + offset < dsize) {
+            data[offset] = (x1_data[head_offset + offset] - mean) * x_grad[head_offset + offset] / a2;
+        }
+        else {
+            data[offset] = 0;
+        }
+    }
+    __syncthreads();
+    for (int gap = blockDim.x * N >> 1; gap > 0; gap >>= 1) {
+        for (int i = 0; i < N; ++i) {
+            int offset = thread_idx * N + i;
+            if (offset < gap) {
+                data[offset] += data[offset + gap];
+            }
+        }
+    }
+    __syncthreads();
+    float p2 = data[0];
+
+
+    // for (int i = 0; i < N; ++i) {
+    //     int offset = thread_idx * N + i;
+    //     if (offset < dim && head_offset + offset < dsize) {
+    //         data[offset] = x1_data[head_offset + offset];
+    //     }
+    //     else {
+    //         data[offset] = 0;
+    //     }
+    // }
+    // __syncthreads();
 
     for (int i = 0; i < N; ++i) {
         int offset = thread_idx * N + i;
         if (offset < dim && head_offset + offset < dsize) {
             x1_grad[head_offset + offset] += x_grad[head_offset + offset] / stdev;
-            for (int j = 0; j < dim; ++j) {
-                x1_grad[head_offset + offset] += (a1 - ((data[offset] - mean) * (data[j] - mean)) / a2) * x_grad[head_offset + j];
-            }
+            x1_grad[head_offset + offset] += p1 - p2 * (x1_data[head_offset + offset] - mean);
         }
     }
 }
@@ -527,6 +575,223 @@ __global__ void dropout_backward_kernel(float* x1_grad, float* x_grad, float* x_
         }
         else {
             x1_grad[idx] += x_grad[idx] / (1 - prob);
+        }
+    }
+}
+
+void GELU::forward_process(Tensor& x1, Tensor& x) {
+    if (x1.device() == "cpu") {
+        const float n = sqrt(2 / M_PI);
+        for (int i = 0; i < x1.dsize(); ++i) {
+            x[i] = 0.5 * x1[i] * (1 + tanh(n * (x1[i] + 0.044715 * pow(x1[i], 3))));
+        }
+    }
+    else {
+        const int block_size = 256;
+        const int grid_size = (x1.dsize() + 255) / 256;
+        gelu_kernel<<<grid_size, block_size>>>(x1.data(), x.data(), x1.dsize());
+        cudaDeviceSynchronize();
+        assert(cudaSuccess == cudaGetLastError());
+    }
+}
+
+__global__ void gelu_kernel(float* x1, float* x, index_t dsize) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < dsize) {
+        const float n = sqrt(2 / M_PI);
+        x[idx] = 0.5 * x1[idx] * (1 + tanh(n * (x1[idx] + 0.044715 * pow(x1[idx], 3))));
+    }
+}
+
+void GELU::grad_fn(TensorImplPtr x1, TensorImplPtr x) {
+    if (x1->device() == "cpu") {
+        const float n = sqrt(2 / M_PI);
+        for (int i = 0; i < x1->dsize(); ++i) {
+           const float th = tanh(n * ((*x1)[i] + 0.044715 * pow((*x1)[i], 3)));
+           x1->grad_[i] += x->grad_[i] * (0.5 * (1 + th) + 0.5 * (*x1)[i] * (1 - th * th) * n * (1 + 0.044715 * 3 * (*x1)[i] * (*x1)[i]));
+        }
+    }
+    else {
+        const int block_size = 256;
+        const int grid_size = (x1->dsize() + 255) / 256;
+        gelu_backward_kernel<<<grid_size, block_size>>>(x1->grad_, x1->data_, x->grad_, x1->dsize());
+        cudaDeviceSynchronize();
+        assert(cudaSuccess == cudaGetLastError());
+    }
+}
+
+__global__ void gelu_backward_kernel(float* x1_grad, float* x1_data, float* x_grad, index_t dsize) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < dsize) {
+        const float n = sqrt(2 / M_PI);
+        const float th = tanh(n * (x1_data[idx] + 0.044715 * pow(x1_data[idx], 3)));
+        x1_grad[idx] += x_grad[idx] * (0.5 * (1 + th) + 0.5 * x1_data[idx] * (1 - th * th) * n * (1 + 0.044715 * 3 * x1_data[idx] * x1_data[idx]));
+    }
+}
+
+void Softmax::forward_process(Tensor& x1, Tensor& x) {
+    if (x1.device() == "cpu") {
+        index_t dim = x1.shape()[x1.shape().size() - 1];
+        for (int b = 0; b < x1.dsize() / dim; ++b) {
+            index_t offset = b * dim;
+            float exp_sum = 0;
+            for (int i = 0; i < dim; ++i) {
+                exp_sum += exp(x1[offset + i]);
+            }
+            for (int i = 0; i < dim; ++i) {
+                x[offset + i] = exp(x1[offset + i]) / exp_sum;
+            }
+        }
+    }
+    else {
+        auto shape = x.shape();
+        // cudaMemcpy(x.data(), x1.data(), sizeof(float) * x1.dsize(), cudaMemcpyDeviceToDevice);
+        const dim3 grid_size(1, shape[shape.size() - 2], x.dsize() / (shape[shape.size() - 2] * shape[shape.size() - 1]));
+        const int block_size = min(256, (shape[shape.size() - 1] % 2 == 0 ? shape[shape.size() - 1] : shape[shape.size() - 1] + 1));
+        softmax_kernel<<<grid_size, block_size, sizeof(float) * shape[shape.size() - 1]>>>(x1.data(), x.data(),
+                                                    (shape[shape.size() - 1] + block_size - 1) / block_size,
+                                                    shape[shape.size() - 1],
+                                                    x.dsize());
+        cudaDeviceSynchronize();
+    }
+}
+
+__global__ void softmax_kernel(float* x1, float* x, int N, index_t dim, index_t dsize) {
+    const index_t z = blockIdx.z;
+    const index_t y = blockIdx.y;
+    const index_t thread_idx = threadIdx.x;
+
+    const index_t head_offset = z * gridDim.y * dim + y * dim;
+
+    extern __shared__ float data[];
+    for (int i = 0; i < N; ++i) {
+        index_t offset = thread_idx * N + i;
+        if (offset < dim) {
+            if ((head_offset + offset) < dsize) {
+                data[offset] = exp(x1[head_offset + offset]);
+            }
+            else {
+                data[offset] = 0;
+            }
+        }
+        else {
+            data[offset] = 0;
+        }
+    }
+    __syncthreads();
+    for (int gap = (blockDim.x * N) >> 1; gap > 0; gap >>= 1) {
+        for (int i = 0; i < N; ++i) {
+            int offset = thread_idx * N + i;
+            if (offset < gap) {
+                data[offset] += data[offset + gap];
+            }
+        }
+    }
+    __syncthreads();
+    float exp_sum = data[0];
+
+    for (int i = 0; i < N; ++i) {
+        int offset = thread_idx * N + i;
+        if (offset < dim && head_offset + offset < dsize) {
+            x[head_offset + offset] = exp(x1[head_offset + offset]) / exp_sum;
+        }
+    }
+}
+
+void Softmax::grad_fn(TensorImplPtr x1, TensorImplPtr x) {
+    if (x1->device() == "cpu") {
+        index_t dim = x1->shape()[x1->shape().size() - 1];
+        for (int b = 0; b < x1->dsize() / dim; ++b) {
+            index_t offset = b * dim;
+            float exp_sum = 0;
+            for (int i = 0; i < dim; ++i) {
+                exp_sum += exp((*x1)[offset + i]);
+            }
+            float exp_sum2 = 0;
+            for (int i = 0; i < dim; ++i) {
+                exp_sum2 += x->grad_[offset + i] * exp((*x1)[offset + i]) / (exp_sum * exp_sum);
+            }
+            for (int i = 0; i < dim; ++i) {
+                x1->grad_[offset + i] += (x->data_[offset + i] * x->grad_[offset + i] - exp(x1->data_[offset + i]) * exp_sum2);
+            }
+        }
+    }
+    else {
+        auto shape = x->shape();
+        const dim3 grid_size(1, shape[shape.size() - 2], x->dsize() / (shape[shape.size() - 2] * shape[shape.size() - 1]));
+        const int block_size = min(256, (shape[shape.size() - 1] % 2 == 0 ? shape[shape.size() - 1] : shape[shape.size() - 1] + 1));
+        softmax_backward_kernel<<<grid_size, block_size, sizeof(float) * shape[shape.size() - 1]>>>(x1->grad_, x1->data_, x->grad_, x->data_,
+                                                            (shape[shape.size() - 1] + block_size - 1) / block_size,
+                                                            shape[shape.size() - 1],
+                                                            x->dsize());
+        cudaDeviceSynchronize();
+    }
+}
+
+__global__ void softmax_backward_kernel(float* x1_grad, float* x1_data, float* x_grad, float* x_data, int N, index_t dim, index_t dsize) {
+    const index_t z = blockIdx.z;
+    const index_t y = blockIdx.y;
+    const index_t thread_idx = threadIdx.x;
+
+    const index_t head_offset = z * gridDim.y * dim + y * dim;
+
+    extern __shared__ float data[];
+    for (int i = 0; i < N; ++i) {
+        index_t offset = thread_idx * N + i;
+        if (offset < dim) {
+            if ((head_offset + offset) < dsize) {
+                data[offset] = exp(x1_data[head_offset + offset]);
+            }
+            else {
+                data[offset] = 0;
+            }
+        }
+        else {
+            data[offset] = 0;
+        }
+    }
+    __syncthreads();
+    for (int gap = (blockDim.x * N) >> 1; gap > 0; gap >>= 1) {
+        for (int i = 0; i < N; ++i) {
+            int offset = thread_idx * N + i;
+            if (offset < gap) {
+                data[offset] += data[offset + gap];
+            }
+        }
+    }
+    __syncthreads();
+    float exp_sum = data[0];
+
+    for (int i = 0; i < N; ++i) {
+        index_t offset = thread_idx * N + i;
+        if (offset < dim) {
+            if ((head_offset + offset) < dsize) {
+                data[offset] = x_grad[offset + i] * exp(x1_data[head_offset + offset]) / (exp_sum * exp_sum);
+            }
+            else {
+                data[offset] = 0;
+            }
+        }
+        else {
+            data[offset] = 0;
+        }
+    }
+    __syncthreads();
+    for (int gap = (blockDim.x * N) >> 1; gap > 0; gap >>= 1) {
+        for (int i = 0; i < N; ++i) {
+            int offset = thread_idx * N + i;
+            if (offset < gap) {
+                data[offset] += data[offset + gap];
+            }
+        }
+    }
+    __syncthreads();
+    float exp_sum2 = data[0];
+    
+    for (int i = 0; i < N; ++i) {
+        int offset = thread_idx * N + i;
+        if (offset < dim && head_offset + offset < dsize) {
+            x1_grad[head_offset + offset] += (x_data[head_offset + offset] * x_grad[head_offset + offset] - exp(x1_data[head_offset + offset]) * exp_sum2);
         }
     }
 }
