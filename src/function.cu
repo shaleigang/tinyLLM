@@ -1,5 +1,10 @@
 #include "function.h"
 
+#include <numeric>
+#include <algorithm>
+#include <cmath>
+#include <cstring>
+
 using namespace tllm::detail;
 
 using std::placeholders::_1;
@@ -8,15 +13,20 @@ using std::placeholders::_3;
 
 namespace tllm {
 
-detail::MatMulExp MatMul;
-
+detail::MatMulExp mat_mul;
+detail::LayerNorm layer_norm(0.00001);
 }
 
 __global__ void matmul_kernel(float* x, float* x1, float* x2, index_t z_, index_t y_, index_t x_, index_t d_, index_t dsize2);
 __global__ void matmul_backward_kernel(float* x, float* x1, float* x2, index_t z_, index_t y_, index_t x_, index_t d_, index_t dsize, index_t dsize1, index_t dsize2);
+__global__ void layer_norm_kernel(float* x1, float* x, int N, index_t dim, index_t dsize, float ep);
+__global__ void layer_norm_backward_kernel(float* x1_grad, float* x1_data, float* x_grad, int N, index_t dim, index_t dsize, float ep);
 
+Tensor UnaryFunc::operator()(Tensor& x1) {
+    return forward(x1);
+}
 
-Tensor MatMulExp::operator()(Tensor& x1, Tensor& x2) {
+Tensor BinaryFunc::operator()(Tensor& x1, Tensor& x2) {
     return forward(x1, x2);
 }
 
@@ -95,6 +105,7 @@ void MatMulExp::forward_process(Tensor& x1, Tensor& x2, Tensor& x) {
                             dim);
         const dim3 block_size(16, 16);
         matmul_kernel<<<grid_size, block_size>>>(x.data(), x1.data(), x2.data(), dim, shape[shape.size() - 2], shape[shape.size() - 1], shape1[shape1.size() - 1], x2.dsize());
+        cudaDeviceSynchronize();
     }
     x1.view(shape1);
     x2.view(shape2);
@@ -156,6 +167,7 @@ void MatMulExp::lhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2, TensorImplPtr x)
         const dim3 block_size(16, 16);
         matmul_backward_kernel<<<grid_size, block_size>>>(x1->grad_, x->grad_, x2->data_, dim, shape1[shape1.size() - 2], shape1[shape1.size() - 1], shape2[shape2.size() - 1],
                              x1->dsize(), x->dsize(), x2->dsize());
+        cudaDeviceSynchronize();
     }
 
     x1->view(shape1);
@@ -220,6 +232,7 @@ void MatMulExp::rhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2, TensorImplPtr x)
         const dim3 block_size(16, 16);
         matmul_backward_kernel<<<grid_size, block_size>>>(x2->grad_, x1->data_, x->grad_, dim, shape2[shape2.size() - 2], shape2[shape2.size() - 1], shape1[shape1.size() - 2],
                                                             x2->dsize(), x1->dsize(), x->dsize());
+        cudaDeviceSynchronize();
     }
 
     x1->transpose(x1->ndim() - 2, x1->ndim() - 1);
@@ -234,4 +247,216 @@ void MatMulExp::rhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2, TensorImplPtr x)
 
     // x2->decreaseRef();
     return;
+}
+
+void LayerNorm::forward_process(Tensor& x1, Tensor& x) {
+    if (x1.device() == "cpu") {
+        std::memcpy(x.data(), x1.data(), sizeof(float) * x1.dsize());
+        index_t dim = x1.shape()[x1.shape().size() - 1];
+        for (int b = 0; b < x1.dsize() / dim; ++b) {
+            index_t offset = b * dim;
+            float mean = std::accumulate(x1.data() + offset, x1.data() + offset + dim, 0.0) / dim;
+            float accum  = 0.0;
+            std::for_each (x1.data() + offset, x1.data() + offset + dim, [&](const float d) {
+                accum  += (d-mean)*(d-mean);
+            });
+        
+            float stdev = sqrt(accum / dim + ep_);
+            std::for_each (x.data() + offset, x.data() + offset + dim, [&](float& d) {
+                d = d - mean;
+                d = d / stdev;
+            });
+        }
+    }
+    else {
+        auto shape = x.shape();
+        // cudaMemcpy(x.data(), x1.data(), sizeof(float) * x1.dsize(), cudaMemcpyDeviceToDevice);
+        const dim3 grid_size(1, shape[shape.size() - 2], x.dsize() / (shape[shape.size() - 2] * shape[shape.size() - 1]));
+        const int block_size = min(256, (shape[shape.size() - 1] % 2 == 0 ? shape[shape.size() - 1] : shape[shape.size() - 1] + 1));
+        layer_norm_kernel<<<grid_size, block_size, sizeof(float) * shape[shape.size() - 1]>>>(x1.data(), x.data(),
+                                                                                                    (shape[shape.size() - 1] + block_size - 1) / block_size,
+                                                                                                    shape[shape.size() - 1],
+                                                                                                    x.dsize(),
+                                                                                                    ep_);
+        cudaDeviceSynchronize();
+    }
+}
+
+__global__ void layer_norm_kernel(float* x1, float* x, int N, index_t dim, index_t dsize, float ep) {
+    const index_t z = blockIdx.z;
+    const index_t y = blockIdx.y;
+    const index_t thread_idx = threadIdx.x;
+
+    const index_t head_offset = z * gridDim.y * dim + y * dim;
+
+    extern __shared__ float data[];
+    for (int i = 0; i < N; ++i) {
+        index_t offset = thread_idx * N + i;
+        if (offset < dim) {
+            if ((head_offset + offset) < dsize) {
+                data[offset] = x1[head_offset + offset];
+            }
+            else {
+                data[offset] = 0;
+            }
+        }
+        else {
+            data[offset] = 0;
+        }
+    }
+    __syncthreads();
+    for (int gap = (blockDim.x * N) >> 1; gap > 0; gap >>= 1) {
+        for (int i = 0; i < N; ++i) {
+            int offset = thread_idx * N + i;
+            if (offset < gap) {
+                data[offset] += data[offset + gap];
+            }
+        }
+    }
+    __syncthreads();
+    float mean = data[0] / dim;
+
+    for (int i = 0; i < N; ++i) {
+        int offset = thread_idx * N + i;
+        if (offset < dim && head_offset + offset < dsize) {
+            data[offset] = (x1[head_offset + offset] - mean) * (x1[head_offset + offset] - mean);
+        }
+        else {
+            data[offset] = 0;
+        }
+    }
+    __syncthreads();
+    for (int gap = blockDim.x * N >> 1; gap > 0; gap >>= 1) {
+        for (int i = 0; i < N; ++i) {
+            int offset = thread_idx * N + i;
+            if (offset < gap) {
+                data[offset] += data[offset + gap];
+            }
+        }
+    }
+    __syncthreads();
+    float accum = data[0];
+    float stdev = sqrt(accum / dim + ep);
+
+    for (int i = 0; i < N; ++i) {
+        int offset = thread_idx * N + i;
+        if (offset < dim && head_offset + offset < dsize) {
+            x[head_offset + offset] = (x1[head_offset + offset] - mean) / stdev;
+        }
+    }
+}
+
+void LayerNorm::grad_fn(TensorImplPtr x1, TensorImplPtr x) {
+    if (x1->device() == "cpu") {
+        index_t dim = x1->shape()[x1->shape().size() - 1];
+        for (int b = 0; b < x1->dsize() / dim; ++b) {
+            index_t offset = b * dim;
+            float mean = std::accumulate(x1->data_ + offset, x1->data_ + offset + dim, 0.0) / dim;
+            float accum  = 0.0;
+            std::for_each (x1->data_ + offset, x1->data_ + offset + dim, [&](const float d) {
+                accum  += (d-mean)*(d-mean);
+            });
+        
+            float stdev = sqrt(accum / dim + ep_);
+
+            float a1 =  - (1 / (dim * stdev));
+            float a2 = stdev * (accum / dim + ep_);
+            
+            for (int i = 0; i < dim; ++i) {
+                x1->grad_[offset + i] += x->grad_[offset + i] / stdev;
+                for (int j = 0; j < dim; ++j) {
+                    x1->grad_[offset + i] += (a1 - ((x1->data_[offset + i] - mean) * (x1->data_[offset + j] - mean)) / a2) * x->grad_[offset + j];
+                }
+            }
+        }
+    }
+    else {
+        auto shape = x->shape();
+        const dim3 grid_size(1, shape[shape.size() - 2], x->dsize() / (shape[shape.size() - 2] * shape[shape.size() - 1]));
+        const int block_size = min(256, (shape[shape.size() - 1] % 2 == 0 ? shape[shape.size() - 1] : shape[shape.size() - 1] + 1));
+        layer_norm_backward_kernel<<<grid_size, block_size, sizeof(float) * shape[shape.size() - 1]>>>(x1->grad_,
+                                                                                                    x1->data_,
+                                                                                                    x->grad_,
+                                                                                                    (shape[shape.size() - 1] + block_size - 1) / block_size,
+                                                                                                    shape[shape.size() - 1],
+                                                                                                    x->dsize(),
+                                                                                                    ep_);
+        cudaDeviceSynchronize();
+    }
+}
+
+__global__ void layer_norm_backward_kernel(float* x1_grad, float* x1_data, float* x_grad, int N, index_t dim, index_t dsize, float ep) {
+    const int z = blockIdx.z;
+    const int y = blockIdx.y;
+    const int thread_idx = threadIdx.x;
+
+    const int head_offset = z * gridDim.y * dim + y * dim;
+
+    extern __shared__ float data[];
+    for (int i = 0; i < N; ++i) {
+        int offset = thread_idx * N + i;
+        if (offset < dim && head_offset + offset < dsize) {
+            data[offset] = x1_data[head_offset + offset];
+        }
+        else {
+            data[offset] = 0;
+        }
+    }
+    __syncthreads();
+    for (int gap = (blockDim.x * N) >> 1; gap > 0; gap >>= 1) {
+        for (int i = 0; i < N; ++i) {
+            int offset = thread_idx * N + i;
+            if (offset < gap) {
+                data[offset] += data[offset + gap];
+            }
+        }
+    }
+    __syncthreads();
+    float mean = data[0] / dim;
+
+    for (int i = 0; i < N; ++i) {
+        int offset = thread_idx * N + i;
+        if (offset < dim && head_offset + offset < dsize) {
+            data[offset] = (x1_data[head_offset + offset] - mean) * (x1_data[head_offset + offset] - mean);
+        }
+        else {
+            data[offset] = 0;
+        }
+    }
+    __syncthreads();
+    for (int gap = blockDim.x * N >> 1; gap > 0; gap >>= 1) {
+        for (int i = 0; i < N; ++i) {
+            int offset = thread_idx * N + i;
+            if (offset < gap) {
+                data[offset] += data[offset + gap];
+            }
+        }
+    }
+    __syncthreads();
+    float accum = data[0];
+    float stdev = sqrt(accum / dim + ep);
+
+    float a1 =  - (1 / (dim * stdev));
+    float a2 = stdev * (accum / dim + ep);
+
+    for (int i = 0; i < N; ++i) {
+        int offset = thread_idx * N + i;
+        if (offset < dim && head_offset + offset < dsize) {
+            data[offset] = x1_data[head_offset + offset];
+        }
+        else {
+            data[offset] = 0;
+        }
+    }
+    __syncthreads();
+
+    for (int i = 0; i < N; ++i) {
+        int offset = thread_idx * N + i;
+        if (offset < dim && head_offset + offset < dsize) {
+            x1_grad[head_offset + offset] += x_grad[head_offset + offset] / stdev;
+            for (int j = 0; j < dim; ++j) {
+                x1_grad[head_offset + offset] += (a1 - ((data[offset] - mean) * (data[j] - mean)) / a2) * x_grad[head_offset + j];
+            }
+        }
+    }
 }

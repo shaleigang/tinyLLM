@@ -1,5 +1,5 @@
 # tinyLLM
-Train a tiny language model using pure C++. Cuda is supported. \
+Train a tiny language model using pure C++ from scratch. Cuda is supported. \
 Under developing... \
 已完成
 * Tensor类。view transpose等
