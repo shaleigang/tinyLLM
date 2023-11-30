@@ -12,10 +12,11 @@ int main() {
     }
     t1.to("cuda");
 
-    nn::LayerNorm norm(3);
-    norm.to("cuda");
+    // nn::LayerNorm norm(3);
+    // norm.to("cuda");
+    nn::Dropout dropout(0.5);
 
-    Tensor t2 = norm(t1);
+    Tensor t2 = dropout(t1);
 
     // std::cout << t1 <<std::endl;
     // std::cout << t2 <<std::endl;

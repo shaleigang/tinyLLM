@@ -4,6 +4,8 @@
 #include "exp.h"
 #include "util.h"
 
+#include <random>
+
 using tllm::detail::UnaryExp;
 using tllm::detail::BinaryExp;
 
@@ -40,6 +42,21 @@ private:
 
 private:
     float ep_;
+};
+
+class Dropout : public UnaryFunc {
+public:
+    Dropout(float prob) : prob_(prob), limit_(100 * prob), di(0, 100) {};
+
+private:
+    virtual void forward_process(Tensor& x1, Tensor& x) override;
+    virtual void grad_fn(TensorImplPtr x1, TensorImplPtr x) override;
+
+private:
+    float prob_;
+    int limit_;
+    std::default_random_engine dre;
+    std::uniform_int_distribution<int> di;
 };
 
 }

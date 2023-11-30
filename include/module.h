@@ -2,6 +2,7 @@
 
 #include "tensor.h"
 #include "params.h"
+#include "function.h"
 
 using tllm::detail::ParamsDict;
 
@@ -51,6 +52,8 @@ private:
     Tensor bias_;
     bool require_bias_;
 };
+
+using detail::Dropout;
 
 }
 }

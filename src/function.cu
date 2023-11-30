@@ -4,6 +4,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <cassert>
+#include <curand_kernel.h>
 
 using namespace tllm::detail;
 
@@ -21,6 +23,8 @@ __global__ void matmul_kernel(float* x, float* x1, float* x2, index_t z_, index_
 __global__ void matmul_backward_kernel(float* x, float* x1, float* x2, index_t z_, index_t y_, index_t x_, index_t d_, index_t dsize, index_t dsize1, index_t dsize2);
 __global__ void layer_norm_kernel(float* x1, float* x, int N, index_t dim, index_t dsize, float ep);
 __global__ void layer_norm_backward_kernel(float* x1_grad, float* x1_data, float* x_grad, int N, index_t dim, index_t dsize, float ep);
+__global__ void drouput_kernel(float* x1, float* x, float prob, index_t dsize, unsigned long long seed);
+__global__ void dropout_backward_kernel(float* x1_grad, float* x_grad, float* x_data, float prob, index_t dsize);
 
 Tensor UnaryFunc::operator()(Tensor& x1) {
     return forward(x1);
@@ -457,6 +461,72 @@ __global__ void layer_norm_backward_kernel(float* x1_grad, float* x1_data, float
             for (int j = 0; j < dim; ++j) {
                 x1_grad[head_offset + offset] += (a1 - ((data[offset] - mean) * (data[j] - mean)) / a2) * x_grad[head_offset + j];
             }
+        }
+    }
+}
+
+void Dropout::forward_process(Tensor& x1, Tensor& x) {
+    if (x1.device() == "cpu") {
+        for (int i = 0; i < x1.dsize(); ++i) {
+            if (di(dre) < limit_) {
+                x[i] = 0;
+            }
+            else {
+                x[i] = x1[i] / (1 - prob_);
+            }
+        }
+    }
+    else {
+        const int block_size = 256;
+        const int grid_size = (x1.dsize() + 255) / 256;
+        drouput_kernel<<<grid_size, block_size>>>(x1.data(), x.data(), prob_, x1.dsize(), time(nullptr));
+        cudaDeviceSynchronize();
+        assert(cudaSuccess == cudaGetLastError());
+    }
+}
+
+__global__ void drouput_kernel(float* x1, float* x, float prob, index_t dsize, unsigned long long seed) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < dsize) {
+        curandState state;
+        curand_init(seed, idx, 0, &state);
+        if (curand_uniform(&state) < prob) {
+            x[idx] = 0;
+        }
+        else {
+            x[idx] = x1[idx] / (1 - prob);
+        }
+    }
+}
+
+void Dropout::grad_fn(TensorImplPtr x1, TensorImplPtr x) {
+    if (x1->device() == "cpu") {
+        for (int i = 0; i < x1->dsize(); ++i) {
+            if (fabs((*x)[i]) < 1e-6) {
+                continue;
+            }
+            else {
+                x1->grad_[i] += (x->grad_[i] / (1 - prob_));
+            }
+        }
+    }
+    else {
+        const int block_size = 256;
+        const int grid_size = (x1->dsize() + 255) / 256;
+        dropout_backward_kernel<<<grid_size, block_size>>>(x1->grad_, x->grad_, x->data_, prob_, x1->dsize());
+        cudaDeviceSynchronize();
+        assert(cudaSuccess == cudaGetLastError());
+    }
+}
+
+__global__ void dropout_backward_kernel(float* x1_grad, float* x_grad, float* x_data, float prob, index_t dsize) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < dsize) {
+        if (fabs(x_data[idx]) < 1e-6) {
+            return;
+        }
+        else {
+            x1_grad[idx] += x_grad[idx] / (1 - prob);
         }
     }
 }
