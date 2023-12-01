@@ -16,7 +16,7 @@ using GraphNodePtr=std::shared_ptr<detail::GraphNode>;
 
 class TensorImpl : public std::enable_shared_from_this<TensorImpl> {
 public:
-    TensorImpl() = default;
+    TensorImpl() : dsize_(0), data_(nullptr), grad_(nullptr) {}
     TensorImpl(std::initializer_list<index_t> dims, string device="cpu", bool require_grad=true);
     TensorImpl(std::vector<index_t> dims, string device="cpu", bool require_grad=true);
     TensorImpl(const TensorImpl& t);
@@ -47,6 +47,8 @@ public:
     string device() const { return device_; }
     void to(string dev);
     bool require_grad() { return require_grad_; }
+    void enable_grad() { require_grad_ = true; }
+    void disable_grad() { require_grad_ = false; }
     
     void setNode(GraphNodePtr n) { next_node_ptr_ = n; }
     GraphNodePtr getNode() { return next_node_ptr_; }

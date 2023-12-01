@@ -46,7 +46,7 @@ private:
 
 class Dropout : public UnaryFunc {
 public:
-    Dropout(float prob) : prob_(prob), limit_(100 * prob), di(0, 100) {};
+    Dropout(float prob) : prob_(prob), limit_(100 * prob), di(0, 100), dre(time(0)) {};
 
 private:
     virtual void forward_process(Tensor& x1, Tensor& x) override;
@@ -112,6 +112,7 @@ extern detail::Log log;
 extern detail::NLLLoss nll_loss;
 
 Tensor cross_entropy(Tensor& x1, Tensor& x2);
+void causal_mask_fill(Tensor& att);
 }
 
 

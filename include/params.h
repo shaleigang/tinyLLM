@@ -21,10 +21,18 @@ public:
 
             for(auto iter: dict)
                 this->insert({
-                    name + iter.first,
+                    name + "." + iter.first,
                     iter.second
                 });
         }
+    }
+
+    void insert_parmdict(string name, ParamsDict parms) {
+        for(auto iter: parms)
+            this->insert({
+                name + "." + iter.first,
+                iter.second
+            });
     }
 
     Tensor& operator[](const std::string& key) {

@@ -27,6 +27,7 @@ Tensor::Tensor(Tensor&& t)
 Tensor& Tensor::operator=(const Tensor& t) {
     tensor_.reset();
     tensor_ = std::make_shared<TensorImpl>(*(t.tensor_));
+    return *this;
 }
 
 index_t Tensor::dsize() const {
@@ -78,11 +79,11 @@ float Tensor::operator[](index_t offset) const {
 }
 
 index_t Tensor::get_offset(std::initializer_list<index_t> ids) const {
-    tensor_->get_offset(std::move(ids));
+    return tensor_->get_offset(std::move(ids));
 }
 
 index_t Tensor::get_offset(std::vector<index_t> ids) const {
-    tensor_->get_offset(std::move(ids));
+    return tensor_->get_offset(std::move(ids));
 }
 
 void Tensor::transpose(index_t dim1, index_t dim2) {
@@ -107,6 +108,14 @@ void Tensor::to(string dev) {
 
 bool Tensor::require_grad() {
     return tensor_->require_grad();
+}
+
+void Tensor::enable_grad() {
+    tensor_->enable_grad();
+}
+
+void Tensor::disable_grad() {
+    tensor_->disable_grad();
 }
 
 TensorImplPtr Tensor::get() {

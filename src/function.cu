@@ -6,12 +6,7 @@
 #include <cstring>
 #include <cassert>
 #include <curand_kernel.h>
-
-using namespace tllm::detail;
-
-using std::placeholders::_1;
-using std::placeholders::_2;
-using std::placeholders::_3;
+#include <cfloat>
 
 namespace tllm {
 namespace F {
@@ -27,8 +22,54 @@ Tensor cross_entropy(Tensor& x1, Tensor& x2) {
     return nll_loss(x1_softmax_log, x2);
 }
 
+__global__ void causal_mask_fill_kernel(float* att, index_t T, index_t dsize);
+void causal_mask_fill(Tensor& att) {
+    // att (B, nh, T, T)
+    auto shape = att.shape();
+    assert(shape.size() == 4);
+    assert(shape[2] == shape[3]);
+
+    index_t B = shape[0];
+    index_t nh = shape[1];
+    index_t T = shape[2];
+
+    if (att.device() == "cpu") {
+        for (index_t b = 0; b < B; ++b) {
+            for (index_t h = 0; h < nh; ++h) {
+                for (index_t i = 0; i < T; ++i) {
+                    for (index_t j = i + 1; j < T; ++j) {
+                        att[{b, h, i, j}] = FLT_MIN;
+                    }
+                }
+            }
+        }
+    }
+    else {
+        dim3 grid_size(T, T, B * nh);
+        causal_mask_fill_kernel<<<grid_size, 1>>>(att.data(), T, att.dsize());
+        cudaDeviceSynchronize();
+    }
+}
+
+__global__ void causal_mask_fill_kernel(float* att, index_t T, index_t dsize) {
+    printf("%d %d %d\n", gridDim.x, gridDim.y, gridDim.z);
+    const int idx = blockIdx.z * T * T + blockIdx.y * T + blockIdx.x;
+    if (idx < dsize) {
+        if (blockIdx.x > blockIdx.y) {
+            printf("%d %d %d\n", blockIdx.x, blockIdx.y, idx);
+            att[idx] = FLT_MIN;
+        }
+    }
+}
+
 }
 }
+
+using namespace tllm::detail;
+
+using std::placeholders::_1;
+using std::placeholders::_2;
+using std::placeholders::_3;
 
 __global__ void matmul_kernel(float* x, float* x1, float* x2, index_t z_, index_t y_, index_t x_, index_t d_, index_t dsize2);
 __global__ void matmul_backward_kernel(float* x, float* x1, float* x2, index_t z_, index_t y_, index_t x_, index_t d_, index_t dsize, index_t dsize1, index_t dsize2);
@@ -527,6 +568,10 @@ __global__ void layer_norm_backward_kernel(float* x1_grad, float* x1_data, float
 }
 
 void Dropout::forward_process(Tensor& x1, Tensor& x) {
+    #ifdef EVAL
+        x = x1 * 1;
+        return;
+    #endif
     if (x1.device() == "cpu") {
         for (int i = 0; i < x1.dsize(); ++i) {
             if (di(dre) < limit_) {
@@ -562,6 +607,10 @@ __global__ void drouput_kernel(float* x1, float* x, float prob, index_t dsize, u
 
 void Dropout::grad_fn(TensorImplPtr x1, TensorImplPtr x) {
     if (x1->device() == "cpu") {
+        #ifdef EVAL
+            memcpy(x1->grad_, x->grad_, sizeof(float) * x->dsize());
+            return;
+        #endif
         for (int i = 0; i < x1->dsize(); ++i) {
             if (fabs((*x)[i]) < 1e-6) {
                 continue;
@@ -572,6 +621,10 @@ void Dropout::grad_fn(TensorImplPtr x1, TensorImplPtr x) {
         }
     }
     else {
+        #ifdef EVAL
+            cudaMemcpy(x1->grad_, x->grad_, sizeof(float) * x->dsize(), cudaMemcpyDeviceToDevice);
+            return;
+        #endif
         const int block_size = 256;
         const int grid_size = (x1->dsize() + 255) / 256;
         dropout_backward_kernel<<<grid_size, block_size>>>(x1->grad_, x->grad_, x->data_, prob_, x1->dsize());

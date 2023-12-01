@@ -2,56 +2,46 @@
 #include "exp.h"
 #include "function.h"
 #include "module.h"
+#include "gpt.h"
 
 using namespace tllm;
 
-int main() {
-    Tensor t1({2,3,3}, "cpu", true);
-    for (int i = 0; i < 18; ++i) {
-        t1[i] = i;
-    }
 
-    Tensor t2({2,3}, "cpu", true);
-    for (int i = 0; i < 6; ++i) {
-        t2[i] = i % 3;
-    }
-    t1.to("cuda");
-    t2.to("cuda");
-
-    // nn::LayerNorm norm(3);
-    // norm.to("cuda");
-    // nn::Dropout dropout(0.5);
-    t1.view({6,3});
-    t2.view({6});
-    Tensor t3 = F::cross_entropy(t1, t2);
-
-    t3.to("cpu");
-    t3.grad()[0] = 1;
-    t3.to("cuda");
-    t3.backward();
-
-    // t3.to("cpu");
-    // for (int i = 0; i < t3.dsize(); ++i) {
-    //     t3.grad()[i] = 1;
-    //     if ((i - 1) % 3 == 0) {
-    //         t2.grad()[i] = 10;
-    //     }
+// Tensor get_pos_ids(index_t T) {
+//         Tensor pos({T, 10}, "cpu");
+//         for (int i = 0; i < T; ++i) {
+//             index_t offset = 10 * i + i;
+//             pos[offset] = 1;
+//         }
+//         return pos;
     // }
 
-    // t2.to("cuda");
-    // t2.backward();
+int main() {
+    // Tensor t1({2,2,5,5}, "cpu", true);
+    // for (int i = 0; i < 100; ++i) {
+    //     t1[i] = i;
+    // }
+    // t1.to("cuda");
+
+    // t1 = t1 + 1;
+    // t1 = t1 + 2;
+
+    // F::causal_mask_fill(t1);
+    
+    GPT model(1, 1024, 8, 4000, 1024, 0.2, false);
+    auto parms = model.parameters();
+    for (auto iter : parms) {
+        std::cout << iter.first << std::endl;
+        // std::cout << iter.second.get() << std::endl;
+    }
+    std::cout << model.get_num_params() / 1e6  << "M" << std::endl;
+
+    // Tensor t1 = get_pos_ids(5);
 
 
-    // t1.apply_grad(0.1);
-    // t2.apply_grad(0.1);
-    // t3.apply_grad(0.1);
-    // t4.apply_grad(0.1);
-    // t5.apply_grad(0.1);
-    // t6.apply_grad(0.1);
-
-    std::cout << t1 <<std::endl;
-    std::cout << t2 <<std::endl;
-    std::cout << t3 <<std::endl;
+    // std::cout << t1 <<std::endl;
+    // std::cout << t2 <<std::endl;
+    // std::cout << t3 <<std::endl;
     // linear.print();
     // std::cout << t4 <<std::endl;
     // std::cout << t5 <<std::endl;

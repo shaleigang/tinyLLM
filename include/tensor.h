@@ -42,6 +42,8 @@ public:
     string device() const;
     void to(string dev);
     bool require_grad();
+    void enable_grad();
+    void disable_grad();
     TensorImplPtr get();
     float* data();
     float* grad();
