@@ -79,13 +79,39 @@ private:
 
 };
 
+class Log : public UnaryFunc {
+public:
+    Log() = default;
+
+private:
+    virtual void forward_process(Tensor& x1, Tensor& x) override;
+    virtual void grad_fn(TensorImplPtr x1, TensorImplPtr x) override;
+
+};
+
+class NLLLoss : public BinaryFunc {
+public:
+    NLLLoss() = default;
+
+private:
+    virtual Tensor generate_ret_tensor(Tensor& x1, Tensor& x2) override;
+    virtual void prepare_forward(Tensor& x1, Tensor& x2, Tensor& x) override;
+    virtual void forward_process(Tensor& x1, Tensor& x2, Tensor& x) override;
+
+    virtual void lhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2, TensorImplPtr x) override;
+    virtual void rhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2, TensorImplPtr x) override;
+};
+
 }
 
 namespace F {
 extern detail::MatMulExp mat_mul;
 extern detail::LayerNorm layer_norm;
 extern detail::Softmax softmax;
+extern detail::Log log;
+extern detail::NLLLoss nll_loss;
 
+Tensor cross_entropy(Tensor& x1, Tensor& x2);
 }
 
 

@@ -18,6 +18,15 @@ namespace F {
 detail::MatMulExp mat_mul;
 detail::LayerNorm layer_norm(0.00001);
 detail::Softmax softmax;
+detail::Log log;
+detail::NLLLoss nll_loss;
+
+Tensor cross_entropy(Tensor& x1, Tensor& x2) {
+    Tensor x1_softmax = softmax(x1);
+    Tensor x1_softmax_log = log(x1_softmax);
+    return nll_loss(x1_softmax_log, x2);
+}
+
 }
 }
 
@@ -32,6 +41,10 @@ __global__ void gelu_backward_kernel(float* x1_grad, float* x1_data, float* x_gr
 __global__ void softmax_kernel(float* x1, float* x, int N, index_t dim, index_t dsize);
 __global__ void softmax_kernel(float* x1, float* x, int N, index_t dim, index_t dsize);
 __global__ void softmax_backward_kernel(float* x1_grad, float* x1_data, float* x_grad, float* x_data, int N, index_t dim, index_t dsize);
+__global__ void log_kernel(float* x1, float* x, index_t dsize);
+__global__ void log_backward_kernel(float* x1_grad, float* x1_data, float* x_grad, index_t dsize);
+__global__ void nllloss_kernel(float* x1, float* x2, float* x, index_t len, index_t dsize);
+__global__ void nllloss_backward_kernel(float* x1_grad, float* x1_data, float* x2_data, float* x_grad, index_t len, index_t dsize);
 
 Tensor UnaryFunc::operator()(Tensor& x1) {
     return forward(x1);
@@ -793,5 +806,147 @@ __global__ void softmax_backward_kernel(float* x1_grad, float* x1_data, float* x
         if (offset < dim && head_offset + offset < dsize) {
             x1_grad[head_offset + offset] += (x_data[head_offset + offset] * x_grad[head_offset + offset] - exp(x1_data[head_offset + offset]) * exp_sum2);
         }
+    }
+}
+
+void Log::forward_process(Tensor& x1, Tensor& x) {
+    if (x1.device() == "cpu") {
+        for (int i = 0;i < x1.dsize(); ++i) {
+            x[i] = log(x1[i]);
+        }
+    }
+    else {
+        const int block_size = 256;
+        const int grid_size = (x1.dsize() + 255) / 256;
+        log_kernel<<<grid_size, block_size>>>(x1.data(), x.data(), x1.dsize());
+        cudaDeviceSynchronize();
+        assert(cudaSuccess == cudaGetLastError());
+    }
+}
+
+__global__ void log_kernel(float* x1, float* x, index_t dsize) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < dsize) {
+        x[idx] = log(x1[idx]);
+    }
+}
+
+void Log::grad_fn(TensorImplPtr x1, TensorImplPtr x) {
+    if (x1->device() == "cpu") {
+        for (int i = 0; i < x1->dsize(); ++i) {
+            x1->grad_[i] += (x->grad_[i] / x1->data_[i]);
+        }
+    }
+    else {
+        const int block_size = 256;
+        const int grid_size = (x1->dsize() + 255) / 256;
+        log_backward_kernel<<<grid_size, block_size>>>(x1->grad_, x1->data_, x->grad_, x1->dsize());
+        cudaDeviceSynchronize();
+        assert(cudaSuccess == cudaGetLastError());
+    }
+}
+
+__global__ void log_backward_kernel(float* x1_grad, float* x1_data, float* x_grad, index_t dsize) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < dsize) {
+        x1_grad[idx] += (x_grad[idx] / x1_data[idx]);
+    }
+}
+
+Tensor NLLLoss::generate_ret_tensor(Tensor& x1, Tensor& x2) {
+    return Tensor({1}, x1.device());
+}
+
+void NLLLoss::prepare_forward(Tensor& x1, Tensor& x2, Tensor& x) {
+    // 1. check
+    if (x1.device() != x2.device()) {
+        std::cout << "TensorImplPtr must in same device." << std::endl;
+        exit(0);
+    }
+
+    assert(x1.ndim() == 2);
+    assert(x2.ndim() == 1);
+    assert(x1.shape()[0] == x2.dsize());
+
+    // 2. add node to return Tensor
+    GraphNodePtr node = std::make_shared<BinaryGraphNode>(x1.get(), x2.get());
+    node->setGradFnL(std::bind(&NLLLoss::lhs_grad_fn, this, _1, _2, _3));
+    node->setGradFnR(std::bind(&NLLLoss::rhs_grad_fn, this, _1, _2, _3));
+    x.setNode(node);
+
+    return;
+}
+
+void NLLLoss::forward_process(Tensor& x1, Tensor& x2, Tensor& x) {
+    if (x1.device() == "cpu") {
+        x[0] = 0;
+        for (int i = 0; i < x2.dsize(); ++i) {
+            index_t offset = x1.shape()[1] * i;
+            x[0] += (-x1[offset + (int)x2[i]]);
+        }
+        x[0] /= x2.dsize();
+    }
+    else {
+        const int block_size = 256;
+        const int grid_size = (x2.dsize() + 255) / 256;
+        nllloss_kernel<<<grid_size, block_size, sizeof(float) * 256>>>(x1.data(), x2.data(), x.data(), x1.shape()[1], x2.dsize());
+        cudaDeviceSynchronize();
+        assert(cudaSuccess == cudaGetLastError());
+    }
+}
+
+__global__ void nllloss_kernel(float* x1, float* x2, float* x, index_t len, index_t dsize) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    extern __shared__ float data[];
+    if (idx < dsize) {
+        data[threadIdx.x] = -x1[idx * len + (int)x2[idx]];
+    }
+    else {
+        data[threadIdx.x] = 0;
+    }
+    __syncthreads();
+
+    for (int gap = blockDim.x >> 1; gap > 0; gap >>= 1) {
+        if (threadIdx.x < gap) {
+            data[threadIdx.x] += data[threadIdx.x + gap];
+        }
+    }
+    __syncthreads();
+
+    if (threadIdx.x == 0) {
+        atomicAdd(x, data[0]);
+    }
+    __syncthreads();
+    if (idx == 0) {
+        x[0] /= dsize;
+    }
+    
+}
+
+void NLLLoss::lhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2, TensorImplPtr x) {
+    if (x1->device() == "cpu") {
+        for (int i = 0; i < x2->dsize(); ++i) {
+            index_t offset = x1->shape()[1] * i;
+            x1->grad_[offset + (int)(x2->data_[i])] += (-(x->grad_[0]) * x1->data_[offset + (int)(x2->data_[i])]);
+        }
+    }
+    else {
+        const int block_size = 256;
+        const int grid_size = (x2->dsize() + 255) / 256;
+        nllloss_backward_kernel<<<grid_size, block_size>>>(x1->grad_, x1->data_, x2->data_,x->grad_, x1->shape()[1], x2->dsize());
+        cudaDeviceSynchronize();
+        assert(cudaSuccess == cudaGetLastError());
+    }
+}
+
+void NLLLoss::rhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2, TensorImplPtr x) {
+    return;
+}
+
+__global__ void nllloss_backward_kernel(float* x1_grad, float* x1_data, float* x2_data, float* x_grad, index_t len, index_t dsize) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < dsize) {
+        x1_grad[idx * len + (int)(x2_data[idx])] += (-(x_grad[0]) * x1_data[idx * len + (int)(x2_data[idx])]);
     }
 }
