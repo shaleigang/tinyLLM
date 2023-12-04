@@ -907,7 +907,10 @@ __global__ void log_backward_kernel(float* x1_grad, float* x1_data, float* x_gra
 }
 
 Tensor NLLLoss::generate_ret_tensor(Tensor& x1, Tensor& x2) {
-    return Tensor({1}, x1.device());
+    Tensor ret({1});
+    ret.grad()[0] = 1;
+    ret.to(x1.device());
+    return ret;
 }
 
 void NLLLoss::prepare_forward(Tensor& x1, Tensor& x2, Tensor& x) {

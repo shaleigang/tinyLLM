@@ -41,6 +41,8 @@ public:
 
     string device() const;
     void to(string dev);
+    void cuda();
+    void cpu();
     bool require_grad();
     void enable_grad();
     void disable_grad();
@@ -55,7 +57,7 @@ public:
     index_t getRef();
     void backward();
     void zero_grad();
-    void apply_grad(float lr);
+    void apply_grad();
 
     friend std::ostream& operator<<(std::ostream& out, Tensor& t);
     Tensor operator+(Tensor& t);

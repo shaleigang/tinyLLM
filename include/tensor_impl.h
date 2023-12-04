@@ -57,7 +57,7 @@ public:
     index_t getRef() { return ref_count_; }
     void backward();
     void zero_grad();
-    void apply_grad(float lr);
+    void apply_grad();
 
     friend std::ostream& operator<<(std::ostream& out, TensorImpl& t);
 

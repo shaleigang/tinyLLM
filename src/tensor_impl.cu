@@ -506,23 +506,23 @@ void TensorImpl::zero_grad() {
     }
 }
 
-__global__ void apply_grad_kernel(float* data, float* grad, float lr, index_t dsize) {
+__global__ void apply_grad_kernel(float* data, float* grad, index_t dsize) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < dsize) {
-        data[idx] += (grad[idx] * lr);
+        data[idx] += grad[idx];
     }
 }
 
-void TensorImpl::apply_grad(float lr) {
+void TensorImpl::apply_grad() {
     if (device_ == "cpu") {
         for(int i = 0; i < dsize_; ++i) {
-            data_[i] += (grad_[i] * lr);
+            data_[i] += grad_[i];
         }
     }
     else {
         const int block_size = 256;
         const int grid_size = (dsize_ + 255) / 256;
-        apply_grad_kernel<<<grid_size, block_size>>>(data_, grad_, lr, dsize_);
+        apply_grad_kernel<<<grid_size, block_size>>>(data_, grad_, dsize_);
     }
 
     zero_grad();

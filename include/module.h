@@ -15,11 +15,12 @@ class Module {
   Module(const Module& other) = delete;
   virtual ~Module() = default;
 
-  virtual void print();
-  virtual void to(string device);
-  virtual void apply_grad(float lr);
-  virtual int get_num_params();
-  virtual string device() { return device_; }
+  void print();
+  void to(string device);
+  void cuda();
+  void cpu();
+  int get_num_params();
+  string device() { return device_; }
 
   virtual Tensor forward(Tensor& input) = 0;
   virtual ParamsDict parameters(void) = 0;

@@ -106,6 +106,14 @@ void Tensor::to(string dev) {
     tensor_->to(std::move(dev));
 }
 
+void Tensor::cuda() {
+    tensor_->to("cuda");
+}
+
+void Tensor::cpu() {
+    tensor_->to("cpu");
+}
+
 bool Tensor::require_grad() {
     return tensor_->require_grad();
 }
@@ -158,8 +166,8 @@ void Tensor::zero_grad() {
     tensor_->zero_grad();
 }
 
-void Tensor::apply_grad(float lr) {
-    tensor_->apply_grad(lr);
+void Tensor::apply_grad() {
+    tensor_->apply_grad();
 }
 
 namespace tllm {

@@ -3,6 +3,8 @@
 #include "function.h"
 #include "module.h"
 #include "gpt.h"
+#include "optimizer.h"
+#include "dataloader.h"
 
 using namespace tllm;
 
@@ -26,17 +28,20 @@ int main() {
     // t1 = t1 + 1;
     // t1 = t1 + 2;
 
-    // F::causal_mask_fill(t1);
-    
-    GPT model(1, 1024, 8, 4000, 1024, 0.2, false);
-    auto parms = model.parameters();
-    for (auto iter : parms) {
-        std::cout << iter.first << std::endl;
-        // std::cout << iter.second.get() << std::endl;
+    TinyStoriesLoader loader("../data/tok4096/", 1, 5, 4096);
+    nn::Embedding emb(4096, 4096);
+    emb.cuda();
+    AdamW adamw(emb.parameters(), {}, 0.001, 0.9, 0.999, "cuda");
+    for (int i = 0; i < loader.get_iter_len(); ++i) {
+        auto ret = loader.next();
+        Tensor data = ret.first;
+        data.to("cuda");
+        auto embs = emb(data);
+        std::cout << embs <<std::endl;
+        std::cout << ret.second <<std::endl;
+        break;
     }
-    std::cout << model.get_num_params() / 1e6  << "M" << std::endl;
-
-    // Tensor t1 = get_pos_ids(5);
+    adamw.step();
 
 
     // std::cout << t1 <<std::endl;

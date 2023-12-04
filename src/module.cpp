@@ -20,14 +20,22 @@ void Module::to(string device) {
     device_ = device;
 }
 
-void Module::apply_grad(float lr) {
-    for (auto iter: parameters()) {
-        Tensor& t = iter.second.get();
-        if (t.require_grad()) {
-            t.apply_grad(lr);
-        }
-    }
+void Module::cuda() {
+    to("cuda");
 }
+
+void Module::cpu() {
+    to("cpu");
+}
+
+// void Module::apply_grad() {
+//     for (auto iter: parameters()) {
+//         Tensor& t = iter.second.get();
+//         if (t.require_grad()) {
+//             t.apply_grad();
+//         }
+//     }
+// }
 
 int Module::get_num_params() {
     int count = 0;
