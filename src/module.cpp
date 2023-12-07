@@ -2,6 +2,8 @@
 #include "function.h"
 
 #include <cassert>
+#include <fstream>
+#include <sys/stat.h>
 
 using namespace tllm::nn;
 using tllm::Tensor;
@@ -28,15 +30,6 @@ void Module::cpu() {
     to("cpu");
 }
 
-// void Module::apply_grad() {
-//     for (auto iter: parameters()) {
-//         Tensor& t = iter.second.get();
-//         if (t.require_grad()) {
-//             t.apply_grad();
-//         }
-//     }
-// }
-
 int Module::get_num_params() {
     int count = 0;
     for (auto iter : parameters()) {
@@ -45,20 +38,69 @@ int Module::get_num_params() {
     return count;
 }
 
+void Module::save(string path) {
+    string old_device = device();
+    cpu();
+
+    struct stat st;
+
+    if (stat(path.c_str(), &st) == -1) {
+        if (mkdir(path.c_str(), 0775) == -1) {
+            perror("mkdir error");
+            return;
+        }
+    }
+
+    string bin_path = path + "model.bin";
+    string offset_path = path + "model.index";
+
+    std::ofstream data_out(bin_path, std::ios::binary | std::ios::trunc);
+    std::ofstream offset_out(offset_path);
+
+    for (auto iter : parameters()) {
+        Tensor& t = iter.second.get();
+        offset_out << iter.first << " " << sizeof(float) * t.dsize() << std::endl;
+        data_out.write((char*)t.data(), sizeof(float) * t.dsize());
+    }
+    to(old_device);
+}
+
+void Module::load(string path) {
+    string old_device = device();
+    cpu();
+
+    string bin_path = path + "model.bin";
+    string offset_path = path + "model.index";
+
+    std::ifstream data_in(bin_path, std::ios::binary);
+    std::ifstream offset_in(offset_path);
+
+    if (!data_in.good()) {
+        std::cout << "Can not find bin file in \"" << path << "\"" << std::endl;
+        exit(0);
+    }
+    if (!offset_in.good()) {
+        std::cout << "Can not find index file in \"" << path << "\"" << std::endl;
+        exit(0);
+    }
+
+    auto params = parameters();
+    string name;
+    index_t len;
+
+    while (offset_in >> name >> len) {
+        data_in.read((char*)params[name].data(), len);
+    }
+
+    to(old_device);
+}
+
 Linear::Linear(index_t in_features, index_t out_features, bool bias)
   : weight_(Tensor({in_features, out_features})),
     require_bias_(bias) {
     if (require_bias_) {
         bias_ = Tensor({out_features});
     }
-    for (int i = 0; i < (in_features * out_features); ++i) {
-        weight_[i] = i;
-    }
-    if (require_bias_) {
-        for (int i = 0; i < (out_features); ++i) {
-            bias_[i] = i;
-        } 
-    } 
 }
 
 Tensor Linear::forward(Tensor& input) {
@@ -92,14 +134,14 @@ LayerNorm::LayerNorm(index_t n_dim, bool bias)
     if (require_bias_) {
         bias_ = Tensor({n_dim});
     }
-    for (int i = 0; i < (n_dim); ++i) {
-        weight_[i] = i;
-    }
-    if (require_bias_) {
-        for (int i = 0; i < (n_dim); ++i) {
-            bias_[i] = i;
-        } 
-    } 
+    // for (int i = 0; i < (n_dim); ++i) {
+    //     weight_[i] = i;
+    // }
+    // if (require_bias_) {
+    //     for (int i = 0; i < (n_dim); ++i) {
+    //         bias_[i] = i;
+    //     } 
+    // } 
 }
 
 Tensor LayerNorm::forward(Tensor& input) {
@@ -131,15 +173,15 @@ ParamsDict LayerNorm::parameters() {
 MLP::MLP(index_t in_dim, index_t hidden_dim, index_t out_dim, float dropout, bool bias)
   : c_fc(in_dim, hidden_dim, bias),
     gelu(),
-    c_proj(hidden_dim, out_dim, bias),
-    dropout(dropout) {}
+    c_proj(hidden_dim, out_dim, bias) {}
+    // dropout(dropout) {}
 
 Tensor MLP::forward(Tensor& input) {
     Tensor x1 = c_fc(input);
     Tensor x2 = gelu(x1);
     Tensor x3 = c_proj(x2);
-    Tensor x4 = dropout(x3);
-    return x4;
+    // Tensor x4 = dropout(x3);
+    return x3;
 }
 
 ParamsDict MLP::parameters() {
@@ -154,8 +196,8 @@ CausalSelfAttention::CausalSelfAttention(index_t n_emdb, index_t n_head, float d
     c_attn_k(n_emdb, n_emdb),
     c_attn_v(n_emdb, n_emdb),
     c_proj(n_emdb, n_emdb),
-    attn_dropout(dropout),
-    resid_dropout(dropout),
+    // attn_dropout(dropout),
+    // resid_dropout(dropout),
     n_head_(n_head),
     n_emdb_(n_emdb) {
     assert (n_emdb % n_head == 0);
@@ -177,17 +219,26 @@ Tensor CausalSelfAttention::forward(Tensor& input) {
     Tensor att2 = att * (1.0 / sqrt(C / n_head_));
     F::causal_mask_fill(att2);
     Tensor att_softmax = F::softmax(att2);
-    Tensor att_dropout = attn_dropout(att_softmax);
-    Tensor y = F::mat_mul(att_dropout, v); // (B, nh, T, hs)
+    // Tensor att_dropout = attn_dropout(att_softmax);
+    // Tensor y = F::mat_mul(att_dropout, v); // (B, nh, T, hs)
+    Tensor y = F::mat_mul(att_softmax, v); // (B, nh, T, hs)
+
+    // q.transpose(1, 2); q.contiguous(); q.view({B, T, C});
+    // k.transpose(2, 3); k.transpose(1, 2); k.contiguous(); k.view({B, T, C});
+    // v.transpose(1, 2); v.contiguous(); v.view({B, T, C});
 
     y.transpose(1, 2);
     y.contiguous();
     y.view({B, T, C});
 
     Tensor y_proj = c_proj(y);
-    Tensor y_dropout = resid_dropout(y_proj);
+    // Tensor y_dropout = resid_dropout(y_proj);
     
-    return y_dropout;
+    // y.view({B, n_head_, T, C / n_head_}); y.transpose(1, 2); y.contiguous();
+
+
+    // return y_dropout;
+    return y_proj;
 }
 
 ParamsDict CausalSelfAttention::parameters() {
@@ -224,23 +275,26 @@ ParamsDict TransformerBlock::parameters() {
     };
 }
 
-Embedding::Embedding(index_t vocab_size, index_t n_embd)
-  : embs_real({n_embd, vocab_size}),
-    vocab_size_(vocab_size),
-    n_embd_(n_embd),
-    embs(embs_real) {}
+// Embedding::Embedding(index_t vocab_size, index_t n_embd)
+//   : embs_real({vocab_size, n_embd}),
+//     vocab_size_(vocab_size),
+//     n_embd_(n_embd),
+//     embs(embs_real) {}
 
-Embedding::Embedding(index_t vocab_size, index_t n_embd, Tensor& weight)
+// Embedding::Embedding(index_t vocab_size, index_t n_embd, Tensor& weight)
+//   : vocab_size_(vocab_size),
+//     n_embd_(n_embd),
+//     embs(weight) {}
+
+Embedding::Embedding(index_t vocab_size, index_t n_embd)
   : vocab_size_(vocab_size),
     n_embd_(n_embd),
-    embs(weight) {}
+    embs({vocab_size, n_embd}) {}
 
 
 
 Tensor Embedding::forward(Tensor& idx) {
-    embs.transpose(0, 1);
     Tensor ret = F::mat_mul(idx, embs);
-    embs.transpose(1, 0);
     return ret;
 }
 

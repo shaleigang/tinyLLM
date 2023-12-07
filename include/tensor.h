@@ -19,6 +19,8 @@ public:
     ~Tensor() = default;
     Tensor& operator=(const Tensor& t);
 
+    index_t use_count() { return tensor_.use_count(); }
+
     index_t dsize () const;
     index_t ndim() const;
     std::vector<index_t> shape() const;

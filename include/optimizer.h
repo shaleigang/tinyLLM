@@ -21,7 +21,7 @@ private:
     float lr_;
     float beta1_;
     float beta2_;
-    float weight_decay_ = 0.01;
+    float weight_decay_ = 0.1;
     std::unordered_map<string, std::shared_ptr<float>> moment1_;
     std::unordered_map<string, std::shared_ptr<float>> moment2_;
     float ep = 1e-8;

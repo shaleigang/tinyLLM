@@ -6,51 +6,33 @@
 #include "optimizer.h"
 #include "dataloader.h"
 
+#include <unistd.h>
+
 using namespace tllm;
 
-
-// Tensor get_pos_ids(index_t T) {
-//         Tensor pos({T, 10}, "cpu");
-//         for (int i = 0; i < T; ++i) {
-//             index_t offset = 10 * i + i;
-//             pos[offset] = 1;
-//         }
-//         return pos;
-    // }
-
 int main() {
-    // Tensor t1({2,2,5,5}, "cpu", true);
-    // for (int i = 0; i < 100; ++i) {
-    //     t1[i] = i;
-    // }
-    // t1.to("cuda");
+    nn::MLP mlp(8,32,8);
+    std::cout << "ctor 2" << std::endl;
+    for (int i = 0; i < 1; ++i) {
+        Tensor t1({2,4,8}, "cpu", true);
+        for (int i = 0; i < 64; ++i) {
+            t1[i] = i;
+        }
+        std::cout << "ctor 1" << std::endl;
 
-    // t1 = t1 + 1;
-    // t1 = t1 + 2;
+        Tensor t2 = mlp(t1);
 
-    TinyStoriesLoader loader("../data/tok4096/", 1, 5, 4096);
-    nn::Embedding emb(4096, 4096);
-    emb.cuda();
-    AdamW adamw(emb.parameters(), {}, 0.001, 0.9, 0.999, "cuda");
-    for (int i = 0; i < loader.get_iter_len(); ++i) {
-        auto ret = loader.next();
-        Tensor data = ret.first;
-        data.to("cuda");
-        auto embs = emb(data);
-        std::cout << embs <<std::endl;
-        std::cout << ret.second <<std::endl;
-        break;
+        std::cout << "ctor 3" << std::endl;
+        for (int i = 0; i < t2.dsize(); ++i) {
+            t2.grad()[i] = 1;
+        }
+        t2.backward();
+        std::cout << "dtor 2" << std::endl;
     }
-    adamw.step();
+    std::cout << "dtor 2" << std::endl;
+    
+    
 
-
-    // std::cout << t1 <<std::endl;
-    // std::cout << t2 <<std::endl;
-    // std::cout << t3 <<std::endl;
-    // linear.print();
-    // std::cout << t4 <<std::endl;
-    // std::cout << t5 <<std::endl;
-    // std::cout << t6 <<std::endl;
 
     return 0;
 }

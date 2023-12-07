@@ -56,10 +56,10 @@ std::pair<Tensor, Tensor> TinyStoriesLoader::next() {
         file_iter_len_ = getFileSize((data_path_ + data_files_[file_id_]).c_str()) / sizeof(unsigned short) / max_seq_len_ / batch_size_;
         fins_.close();
         fins_.open(data_path_ + data_files_[file_id_], std::ifstream::binary);
-        std::cout << "file: " << data_path_ + data_files_[file_id_] << std::endl;
-        std::cout << "file len: " << getFileSize((data_path_ + data_files_[file_id_]).c_str()) << std::endl;
-        std::cout << "file_iter_len: " << file_iter_len_ << std::endl;
-        std::cout << "sum_iter_len: " << iter_len_ << std::endl;
+        // std::cout << "file: " << data_path_ + data_files_[file_id_] << std::endl;
+        // std::cout << "file len: " << getFileSize((data_path_ + data_files_[file_id_]).c_str()) << std::endl;
+        // std::cout << "file_iter_len: " << file_iter_len_ << std::endl;
+        // std::cout << "sum_iter_len: " << iter_len_ << std::endl;
     }
     // std::cout << file_iter_len_ << std::endl;
     --file_iter_len_;
@@ -68,11 +68,11 @@ std::pair<Tensor, Tensor> TinyStoriesLoader::next() {
     unsigned short pos; 
     for (int d = 0; d < batch_size_ * max_seq_len_; ++d) {
         fins_.read(reinterpret_cast<char*>(&pos), sizeof(unsigned short));
-        std::cout << pos << std::endl;
+        // std::cout << d << std::endl;
         if (d % max_seq_len_ != (max_seq_len_ - 1))
-            ret[d * vocab_size_ + pos] = 1;
-        if (d > 0)
-            label[d - 1] = pos;
+            ret[(d - (d / max_seq_len_)) * vocab_size_ + pos] = 1;
+        if (d % max_seq_len_ > 0)
+            label[d - 1 - (d / max_seq_len_)] = pos;
     }
     ret.disable_grad();
     label.disable_grad();

@@ -77,6 +77,8 @@ private:
     virtual void forward_process(Tensor& x1, Tensor& x) override;
     virtual void grad_fn(TensorImplPtr x1, TensorImplPtr x) override;
 
+    void before_softmax(Tensor& x1);
+
 };
 
 class Log : public UnaryFunc {

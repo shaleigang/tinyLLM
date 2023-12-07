@@ -2,15 +2,16 @@
 
 #include <cassert>
 #include <thread>
+#include <cstring>
 
 using namespace tllm;
 
 GPT::GPT(index_t n_layer, index_t n_embd, index_t n_head, index_t vocab_size, index_t block_size, float dropout, bool bias)
   : wpe(block_size, n_embd),
-    drop(dropout),
+    // drop(dropout),
     ln_f(n_embd, bias),
     lm_head(n_embd, vocab_size, false),
-    wte(vocab_size, n_embd, lm_head.parameters()["weight"]),
+    wte(vocab_size, n_embd),
     block_size_(block_size),
     vocab_size_(vocab_size) {
     for (int i = 0; i < n_layer; ++i) {
@@ -25,13 +26,17 @@ Tensor GPT::forward(Tensor& idx) {
     index_t T = shape[1];
     assert(T < block_size_);
     idx.disable_grad();
-
     Tensor pos_ids = get_pos_ids(T);
     pos_ids.to(device());
     Tensor pos_emb = wpe(pos_ids);
-    Tensor tok_emb = wte(idx) + pos_emb;
+    Tensor tok_emb = wte(idx);
+    // for (auto i : tok_emb.shape()) {
+    //     std::cout << i << " ";
+    // }
+    // std::cout << std::endl;
+    Tensor x = tok_emb + pos_emb;
     
-    Tensor x = drop(tok_emb);
+    // Tensor x = drop(tok_emb);
     for (int i = 0; i < blocks.size(); ++i) {
         x = (*blocks[i])(x);
     }
@@ -40,7 +45,7 @@ Tensor GPT::forward(Tensor& idx) {
     return logits;
 }
 
-std::pair<Tensor, Tensor> GPT::forward(Tensor& idx, Tensor& targets) {
+Tensor GPT::forward(Tensor& idx, Tensor& targets) {
     auto shape = idx.shape();
     index_t batch = shape[0];
     index_t T = shape[1];
@@ -48,20 +53,31 @@ std::pair<Tensor, Tensor> GPT::forward(Tensor& idx, Tensor& targets) {
     idx.disable_grad();
 
     Tensor pos_ids = get_pos_ids(T);
+    // std::cout << pos_ids << std::endl;
     pos_ids.to(device());
     Tensor pos_emb = wpe(pos_ids);
-    Tensor tok_emb = wte(idx) + pos_emb;
+    // std::cout << pos_emb << std::endl;
+    Tensor tok_emb = wte(idx);
+    Tensor x = tok_emb + pos_emb;
     
-    Tensor x = drop(tok_emb);
+    // Tensor x = drop(tok_emb);
+    std::vector<Tensor> vec;
+    vec.push_back(std::move(x));
     for (int i = 0; i < blocks.size(); ++i) {
-        x = (*blocks[i])(x);
+        Tensor temp = (*blocks[i])(vec[vec.size() - 1]);
+        vec.push_back(std::move(temp));
     }
-    x = ln_f(x);
+    Tensor x_l = ln_f(vec[vec.size() - 1]);
 
-    Tensor logits = lm_head(x); // (B, T, vocab_size)
+    Tensor logits = lm_head(x_l); // (B, T, vocab_size)
+
+    auto shape_l = logits.shape();
     logits.view({logits.dsize() / vocab_size_, vocab_size_}); 
     Tensor loss = F::cross_entropy(logits, targets);
-    return {logits, loss};
+
+    logits.view(shape_l);
+
+    return loss;
 }
 
 ParamsDict GPT::parameters() {
@@ -80,6 +96,7 @@ ParamsDict GPT::parameters() {
 
 Tensor GPT::get_pos_ids(index_t T) {
     Tensor pos({T, block_size_}, "cpu", false);
+    memset(pos.data(), 0, sizeof(float) * pos.dsize());
     for (int i = 0; i < T; ++i) {
         index_t offset = block_size_ * i + i;
         pos[offset] = 1;

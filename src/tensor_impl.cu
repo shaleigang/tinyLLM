@@ -34,9 +34,14 @@ TensorImpl::TensorImpl(std::initializer_list<index_t> dims, string device,
     cudaMalloc((void**)&data_, sizeof(float) * stride);
     cudaMalloc((void**)&grad_, sizeof(float) * stride);
     cudaMemset(grad_, 0, sizeof(float) * stride);
+    auto error = cudaGetLastError();
+    if (cudaSuccess != error) {
+      printf("%s\n", cudaGetErrorString(error));
+      assert(false);
+    }
   } else {
     std::cout << "Not support device." << std::endl;
-    exit(0);
+    assert(false);
   }
 }
 
@@ -62,9 +67,14 @@ TensorImpl::TensorImpl(std::vector<index_t> dims, string device,
     cudaMalloc((void**)&data_, sizeof(float) * stride);
     cudaMalloc((void**)&grad_, sizeof(float) * stride);
     cudaMemset(grad_, 0, sizeof(float) * stride);
+    auto error = cudaGetLastError();
+    if (cudaSuccess != error) {
+      printf("%s\n", cudaGetErrorString(error));
+      assert(false);
+    }
   } else {
     std::cout << "Not support device." << std::endl;
-    exit(0);
+    assert(false);
   }
 }
 
@@ -85,6 +95,11 @@ TensorImpl::TensorImpl(const TensorImpl& t)
     cudaMemcpy(data_, t.data_, sizeof(float) * t.dsize(), cudaMemcpyDeviceToDevice);
     cudaMalloc((void**)&grad_, sizeof(float) * t.dsize());
     cudaMemcpy(grad_, t.grad_, sizeof(float) * t.dsize(), cudaMemcpyDeviceToDevice);
+    auto error = cudaGetLastError();
+    if (cudaSuccess != error) {
+      printf("%s\n", cudaGetErrorString(error));
+      assert(false);
+    }
   }
 }
 
@@ -109,6 +124,11 @@ TensorImpl::~TensorImpl() {
   } else {
     cudaFree(data_);
     cudaFree(grad_);
+    auto error = cudaGetLastError();
+    if (cudaSuccess != error) {
+      printf("%s\n", cudaGetErrorString(error));
+      assert(false);
+    }
   }
 }
 
@@ -119,7 +139,6 @@ TensorImpl& TensorImpl::operator=(const TensorImpl& t) {
   stride_ = t.stride_;
   dsize_ = t.dsize_;
   ref_count_ = 0;
-
   if (device_ == "cpu") {
     free(data_);
     data_ = (float*)malloc(sizeof(float) * t.dsize());
@@ -134,6 +153,11 @@ TensorImpl& TensorImpl::operator=(const TensorImpl& t) {
     cudaFree(grad_);
     cudaMalloc((void**)&grad_, sizeof(float) * t.dsize());
     cudaMemcpy(grad_, t.grad_, sizeof(float) * t.dsize(), cudaMemcpyDeviceToDevice);
+    auto error = cudaGetLastError();
+    if (cudaSuccess != error) {
+      printf("%s\n", cudaGetErrorString(error));
+      assert(false);
+    }
   }
   return *this;
 }
@@ -149,7 +173,7 @@ float& TensorImpl::operator[](std::initializer_list<index_t> ids) {
     return data_[offset];
   else {
     std::cout << "only support non const index on cpu TensorImpl." << std::endl;
-    exit(0);
+    assert(false);
   }
 }
 
@@ -182,7 +206,7 @@ float& TensorImpl::operator[](std::vector<index_t> ids) {
     return data_[offset];
   else {
     std::cout << "only support non const index on cpu TensorImpl." << std::endl;
-    exit(0);
+    assert(false);
   }
 }
 
@@ -209,7 +233,7 @@ float& TensorImpl::operator[](index_t offset) {
     return data_[offset];
   else {
     std::cout << "only support index on cpu TensorImpl." << std::endl;
-    exit(0);
+    assert(false);
   }
 }
 
@@ -222,6 +246,11 @@ float TensorImpl::operator[](index_t offset) const {
     cudaMalloc((void**)&target_device, sizeof(float));
     operator_index_kernel<<<1, 1>>>(data_, target_device, offset);
     cudaMemcpy(&target, target_device, sizeof(float), cudaMemcpyDeviceToHost);
+    auto error = cudaGetLastError();
+    if (cudaSuccess != error) {
+      printf("%s\n", cudaGetErrorString(error));
+      assert(false);
+    }
     return target;
   }
 }
@@ -250,11 +279,42 @@ index_t TensorImpl::get_offset(std::vector<index_t> ids) const {
 void TensorImpl::transpose(index_t dim1, index_t dim2) {
   std::swap(dims_[dim1], dims_[dim2]);
   std::swap(stride_[dim1], stride_[dim2]);
+
+  shape_recovery_queue_.push_back(
+    std::bind(&TensorImpl::transpose_recovery, this,
+            std::vector<index_t>{dim1, dim2})
+  );
+
   return;
+}
+
+void TensorImpl::transpose_recovery(std::vector<index_t> dims) {
+  std::swap(dims_[dims[0]], dims_[dims[1]]);
+  std::swap(stride_[dims[0]], stride_[dims[1]]);
+  return;
+}
+
+void TensorImpl::view_recovery(std::vector<index_t> dims) {
+  assert(is_contiguous());
+  std::vector<index_t> newDims;
+  index_t newDsize = 1;
+  for (auto d : dims) {
+    newDims.push_back(d);
+    newDsize *= d;
+  }
+  assert(newDsize == dsize());
+  dims_ = newDims;
+  index_t stride = 1;
+  stride_ = std::vector<index_t>(newDims.size(), 0);
+  for (int i = newDims.size() - 1; i >= 0; --i) {
+    stride_[i] = stride;
+    stride *= newDims[i];
+  }
 }
 
 void TensorImpl::view(std::initializer_list<index_t> dims) {
   assert(is_contiguous());
+  std::vector<index_t> old_shape = shape();
   std::vector<index_t> newDims;
   index_t newDsize = 1;
   for (auto d : dims) {
@@ -269,10 +329,15 @@ void TensorImpl::view(std::initializer_list<index_t> dims) {
     stride_[i] = stride;
     stride *= newDims[i];
   }
+
+  shape_recovery_queue_.push_back(
+    std::bind(&TensorImpl::view_recovery, this, old_shape)
+  );
 }
 
 void TensorImpl::view(std::vector<index_t> dims) {
   assert(is_contiguous());
+  std::vector<index_t> old_shape = shape();
   std::vector<index_t> newDims;
   index_t newDsize = 1;
   for (auto d : dims) {
@@ -287,6 +352,10 @@ void TensorImpl::view(std::vector<index_t> dims) {
     stride_[i] = stride;
     stride *= newDims[i];
   }
+
+  shape_recovery_queue_.push_back(
+    std::bind(&TensorImpl::view_recovery, this, old_shape)
+  );
 }
 
 void TensorImpl::to(string dev) {
@@ -302,6 +371,11 @@ void TensorImpl::to(string dev) {
                  cudaMemcpyDeviceToHost);
     cudaFree(grad_);
     grad_ = newGrad;
+    auto error = cudaGetLastError();
+    if (cudaSuccess != error) {
+      printf("%s\n", cudaGetErrorString(error));
+      assert(false);
+    }
   } else {
     float* newData = nullptr;
     cudaMalloc((void**)&newData, sizeof(float) * dsize_);
@@ -314,6 +388,11 @@ void TensorImpl::to(string dev) {
                  cudaMemcpyHostToDevice);
     free(grad_);
     grad_ = newGrad;
+    auto error = cudaGetLastError();
+    if (cudaSuccess != error) {
+      printf("%s\n", cudaGetErrorString(error));
+      assert(false);
+    }
   }
   device_ = dev;
 }
@@ -396,7 +475,11 @@ void TensorImpl::contiguous() {
                cudaMemcpyHostToDevice);
     cudaMemcpy(order_stride_device, order_stride.data(),
                ndim() * sizeof(index_t), cudaMemcpyHostToDevice);
-
+    auto error = cudaGetLastError();
+    if (cudaSuccess != error) {
+      printf("%s\n", cudaGetErrorString(error));
+      assert(false);
+    }
     const int block_size = 256;
     const int grid_size = (dsize_ + 255) / 256;
 
@@ -409,6 +492,11 @@ void TensorImpl::contiguous() {
     {
       float* newGrad = nullptr;
       cudaMalloc((void**)&newGrad, dsize_ * sizeof(float));
+      auto error = cudaGetLastError();
+      if (cudaSuccess != error) {
+        printf("%s\n", cudaGetErrorString(error));
+        assert(false);
+      }
 
       const int block_size = 256;
       const int grid_size = (dsize_ + 255) / 256;
@@ -422,6 +510,11 @@ void TensorImpl::contiguous() {
     }
     cudaFree(stride_device);
     cudaFree(order_stride_device);
+    error = cudaGetLastError();
+    if (cudaSuccess != error) {
+      printf("%s\n", cudaGetErrorString(error));
+      assert(false);
+    }
   }
 
   stride_ = order_stride;
@@ -445,6 +538,14 @@ __global__ void contiguous_kernel(float* src, float* dst, index_t dsize,
 
 __global__ void operator_index_kernel(float* data, float* target, index_t idx) {
   *target = data[idx];
+}
+
+void TensorImpl::recovery() {
+  while( !shape_recovery_queue_.empty()) {
+    contiguous();
+    shape_recovery_queue_.back()();
+    shape_recovery_queue_.pop_back();
+  }
 }
 
 namespace tllm {
@@ -509,14 +610,14 @@ void TensorImpl::zero_grad() {
 __global__ void apply_grad_kernel(float* data, float* grad, index_t dsize) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < dsize) {
-        data[idx] += grad[idx];
+        data[idx] -= grad[idx];
     }
 }
 
 void TensorImpl::apply_grad() {
     if (device_ == "cpu") {
         for(int i = 0; i < dsize_; ++i) {
-            data_[i] += grad_[i];
+            data_[i] -= grad_[i];
         }
     }
     else {
@@ -524,7 +625,6 @@ void TensorImpl::apply_grad() {
         const int grid_size = (dsize_ + 255) / 256;
         apply_grad_kernel<<<grid_size, block_size>>>(data_, grad_, dsize_);
     }
-
     zero_grad();
 }
 
@@ -532,6 +632,7 @@ UnaryGraphNode::UnaryGraphNode(TensorImplPtr t)
   : t_(t) { }
 
 void UnaryGraphNode::backward(TensorImplPtr t) {
+  t->recovery();
   grad_fn_(t_, t);
   t_->decreaseRef();
   t_->backward();
@@ -541,6 +642,7 @@ BinaryGraphNode::BinaryGraphNode(TensorImplPtr tl, TensorImplPtr tr)
   : tl_(tl), tr_(tr) { }
 
 void BinaryGraphNode::backward(TensorImplPtr t) {
+  t->recovery();
   grad_fn_l_(tl_, tr_, t);
   grad_fn_r_(tl_, tr_, t);
   tl_->decreaseRef();

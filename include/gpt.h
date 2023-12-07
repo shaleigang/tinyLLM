@@ -17,7 +17,7 @@ public:
     ~GPT() = default;
 
     virtual Tensor forward(Tensor& idx) override;
-    std::pair<Tensor, Tensor> forward(Tensor& idx, Tensor& targets); // target: (vocab_size) = B * T
+    Tensor forward(Tensor& idx, Tensor& targets); // target: (vocab_size) = B * T
     virtual ParamsDict parameters(void) override;
 
     void init_weight();
@@ -25,7 +25,7 @@ public:
 
 private:
     nn::Embedding wpe;
-    nn::Dropout drop;
+    // nn::Dropout drop;
     nn::LayerNorm ln_f;
     std::vector<std::unique_ptr<nn::TransformerBlock>> blocks;
     nn::Linear lm_head;
