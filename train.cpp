@@ -23,7 +23,7 @@ int main() {
 
     std::cout << "GPT model " << gpt.get_num_params() / 1e6 << "M" <<std::endl;
 
-    TinyStoriesLoader loader("../data/tok4096/", 64, 256, 4096);
+    TinyStoriesLoader loader("../data/tok4096/", 128, 256, 4096);
 
     ParamsDict decay_params;
     ParamsDict nodecay_params;
@@ -66,7 +66,7 @@ int main() {
     
         adamw.step();
 
-        if (i % 1 == 0) {
+        if (i != 0 && i % 1000 == 0) {
             std::cout << "saving model" << std::endl;
             gpt.save("/home/slg/work/tinyLLM/ckpt/" + std::to_string(i) + "_" + std::to_string(loss[0]) + "/");
         }
