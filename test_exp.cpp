@@ -11,27 +11,36 @@
 using namespace tllm;
 
 int main() {
-    nn::MLP mlp(8,32,8);
-    std::cout << "ctor 2" << std::endl;
-    for (int i = 0; i < 1; ++i) {
-        Tensor t1({2,4,8}, "cpu", true);
-        for (int i = 0; i < 64; ++i) {
-            t1[i] = i;
-        }
-        std::cout << "ctor 1" << std::endl;
-
-        Tensor t2 = mlp(t1);
-
-        std::cout << "ctor 3" << std::endl;
-        for (int i = 0; i < t2.dsize(); ++i) {
-            t2.grad()[i] = 1;
-        }
-        t2.backward();
-        std::cout << "dtor 2" << std::endl;
+    Tensor idx({2, 5});
+    for (int i = 0; i < idx.dsize(); ++i) {
+        idx[i] = i;
     }
-    std::cout << "dtor 2" << std::endl;
+    // idx.cuda();
+
+    Tensor liner({10, 20});
+    for (int i = 0; i < liner.dsize(); ++i) {
+        liner[i] = i;
+    }
+    // liner.cuda();
+
+    nn::Embedding emb(20, 10, liner);
+    // emb.cuda();
+
+    Tensor t = emb(idx);
+    Tensor t2 = F::mat_mul(t, liner);
+
+    t2.cpu();
+    for (int i = 0; i < t2.dsize(); ++i) {
+        t2.grad()[i] = 1;
+    }
+    // t2.cuda();
+    t2.backward();
     
-    
+    std::cout << idx << std::endl;
+    std::cout << liner << std::endl;
+    std::cout << emb.parameters()["embs"] << std::endl;
+    std::cout << t << std::endl;
+    std::cout << t2 << std::endl;
 
 
     return 0;

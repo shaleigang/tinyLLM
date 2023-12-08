@@ -104,6 +104,19 @@ private:
     virtual void rhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2, TensorImplPtr x) override;
 };
 
+class Emb : public BinaryFunc {
+public:
+    Emb() = default;
+
+private:
+    virtual Tensor generate_ret_tensor(Tensor& x1, Tensor& x2) override;
+    virtual void prepare_forward(Tensor& x1, Tensor& x2, Tensor& x) override;
+    virtual void forward_process(Tensor& x1, Tensor& x2, Tensor& x) override;
+
+    virtual void lhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2, TensorImplPtr x) override;
+    virtual void rhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2, TensorImplPtr x) override;
+};
+
 }
 
 namespace F {
@@ -112,6 +125,7 @@ extern detail::LayerNorm layer_norm;
 extern detail::Softmax softmax;
 extern detail::Log log;
 extern detail::NLLLoss nll_loss;
+extern detail::Emb emb;
 
 Tensor cross_entropy(Tensor& x1, Tensor& x2);
 void causal_mask_fill(Tensor& att);

@@ -16,6 +16,7 @@ detail::LayerNorm layer_norm(0.00001);
 detail::Softmax softmax;
 detail::Log log;
 detail::NLLLoss nll_loss;
+detail::Emb emb;
 
 Tensor cross_entropy(Tensor& x1, Tensor& x2) {
   Tensor x1_softmax = softmax(x1);
@@ -111,6 +112,7 @@ __global__ void nllloss_kernel(float* x1, float* x2, float* x, index_t len,
 __global__ void nllloss_backward_kernel(float* x1_grad, float* x1_data,
                                         float* x2_data, float* x_grad,
                                         index_t len, index_t dsize);
+__global__ void emb_backward_kernel(float* idx, float* emb_grad, float* x_grad, int N, index_t dim, index_t dsize);
 
 Tensor UnaryFunc::operator()(Tensor& x1) { return forward(x1); }
 
@@ -126,7 +128,6 @@ Tensor MatMulExp::generate_ret_tensor(Tensor& x1, Tensor& x2) {
     assert(false);
   }
   shape1[shape1.size() - 1] = shape2[shape2.size() - 1];
-  x2.transpose(x2.ndim() - 2, x2.ndim() - 1);
   return Tensor(shape1, x1.device());
 }
 
@@ -159,6 +160,8 @@ void MatMulExp::prepare_forward(Tensor& x1, Tensor& x2, Tensor& x) {
   node->setGradFnL(std::bind(&MatMulExp::lhs_grad_fn, this, _1, _2, _3));
   node->setGradFnR(std::bind(&MatMulExp::rhs_grad_fn, this, _1, _2, _3));
   x.setNode(node);
+
+  x2.transpose(x2.ndim() - 2, x2.ndim() - 1);
 
   return;
 }
@@ -350,10 +353,10 @@ void MatMulExp::rhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2,
   for (int i = 0; i < shape2.size() - 2; ++i) {
     dim2 *= shape2[i];
   }
+  
   x1->view({dim, shape1[shape1.size() - 1], shape1[shape1.size() - 2]});
   x2->view({dim2, shape2[shape2.size() - 2], shape2[shape2.size() - 1]});
   x->view({dim, shape[shape.size() - 1], shape[shape.size() - 2]});
-
   if (x1->device() == "cpu") {
     for (index_t m = 0; m < dim; ++m) {
       for (index_t i = 0; i < shape[shape.size() - 2]; ++i) {
@@ -1251,5 +1254,107 @@ __global__ void nllloss_backward_kernel(float* x1_grad, float* x1_data,
   if (idx < dsize) {
     x1_grad[idx * len + (int)(x2_data[idx])] +=
         (-(x_grad[0]) * x1_data[idx * len + (int)(x2_data[idx])]);
+  }
+}
+
+Tensor Emb::generate_ret_tensor(Tensor& idx, Tensor& emb) {
+  if (idx.shape().size() == 1) {
+    Tensor x({idx.shape()[0], emb.shape()[1]}, emb.device());
+    return x;
+  }
+  else {
+    Tensor x({idx.shape()[0], idx.shape()[1], emb.shape()[1]}, emb.device());
+    return x;
+  }
+}
+
+void Emb::prepare_forward(Tensor& idx, Tensor& emb, Tensor& x) {
+  // 1. check
+  if (idx.device() != emb.device()) {
+    std::cout << "TensorImplPtr must in same device." << std::endl;
+    assert(false);
+  }
+
+  assert(emb.shape().size() == 2);
+
+  // 2. add node to return Tensor
+  GraphNodePtr node = std::make_shared<BinaryGraphNode>(idx.get(), emb.get());
+  node->setGradFnL(std::bind(&Emb::lhs_grad_fn, this, _1, _2, _3));
+  node->setGradFnR(std::bind(&Emb::rhs_grad_fn, this, _1, _2, _3));
+  x.setNode(node);
+
+}
+
+void Emb::forward_process(Tensor& idx, Tensor& emb, Tensor& x) {
+  index_t vocab_size = emb.shape()[0];
+  index_t hidden_dim = emb.shape()[1];
+  if (idx.device() == "cpu") {
+    for (int i = 0; i < idx.dsize(); ++i) {
+      index_t offset = (index_t)idx[i];
+      assert(offset < vocab_size);
+      memcpy(x.data() + hidden_dim * i, emb.data() + offset * hidden_dim, sizeof(float) * hidden_dim);
+    }
+  }
+  else {
+    idx.cpu();
+    for (int i = 0; i < idx.dsize(); ++i) {
+      index_t offset = (index_t)idx[i];
+      assert(offset < vocab_size);
+      cudaMemcpy(x.data() + hidden_dim * i, emb.data() + offset * hidden_dim, sizeof(float) * hidden_dim, cudaMemcpyDeviceToDevice);
+    }
+    cudaDeviceSynchronize();
+    auto error = cudaGetLastError();
+    if (cudaSuccess != error) {
+      printf("%s\n", cudaGetErrorString(error));
+      assert(false);
+    }
+    idx.cuda();
+  }
+}
+
+void Emb::lhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2, TensorImplPtr x) {
+  return;
+}
+
+__global__ void emb_backward_kernel(float* idx, float* emb_grad, float* x_grad, int N, index_t dim, index_t dsize) {
+  const index_t id = blockIdx.x;
+  const index_t thread_idx = threadIdx.x;
+
+  if (id < dsize) {
+    index_t vocab_id = (index_t)idx[id];
+    index_t head_offset = thread_idx * N;
+    for (int i = 0; i < N; ++i) {
+      if (head_offset + i < dim) {
+        atomicAdd(emb_grad + vocab_id * dim + head_offset + i, x_grad[id * dim + head_offset + i]);
+      }
+    }
+  }
+  __syncthreads();
+}
+
+void Emb::rhs_grad_fn(TensorImplPtr idx, TensorImplPtr emb, TensorImplPtr x) {
+  index_t hidden_dim = emb->shape()[1];
+  if (idx->device() == "cpu") {
+    for (int i = 0; i < idx->dsize(); ++i) {
+      index_t offset = (index_t)idx->data_[i];
+      for (int d = 0; d < hidden_dim; ++d) {
+        emb->grad_[offset * hidden_dim + d] += x->grad_[i * hidden_dim + d];
+      }
+    }
+  }
+  else {
+    int grid_size = idx->dsize();
+    int block_size = min(
+        256, (emb->shape()[1] % 2 == 0 ? emb->shape()[1]
+                                               : emb->shape()[1] + 1));
+    emb_backward_kernel<<<grid_size, block_size>>>(idx->data_, emb->grad_, x->grad_, (hidden_dim + block_size - 1) / block_size,
+                                                    hidden_dim, idx->dsize());
+    
+    cudaDeviceSynchronize();
+    auto error = cudaGetLastError();
+    if (cudaSuccess != error) {
+      printf("%s\n", cudaGetErrorString(error));
+      assert(false);
+    }
   }
 }

@@ -121,15 +121,15 @@ class TransformerBlock : public Module {
 class Embedding : public Module {
 public:
     Embedding(index_t vocab_size, index_t n_embd);
-    // Embedding(index_t vocab_size, index_t n_embd, Tensor& weight);
+    Embedding(index_t vocab_size, index_t n_embd, Tensor& weight);
     ~Embedding() = default;
 
     virtual Tensor forward(Tensor& idx) override;
     virtual ParamsDict parameters(void) override;
 private:
-    // Tensor& embs;
-    // Tensor embs_real;
-    Tensor embs;
+    Tensor& embs;
+    Tensor embs_real;
+    // Tensor embs;
 
     index_t vocab_size_;
     index_t n_embd_;

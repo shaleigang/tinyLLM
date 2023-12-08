@@ -15,15 +15,11 @@ int main() {
     // std::cout << "model loaded." << std::endl;
     // GPT gpt(6, 8, 2, 10, 5, 0.2, false);
     gpt.cuda();
-    // for (auto iter : gpt.parameters()) {
-    //         std::cout << iter.first << std::endl;
-            // std::cout << iter.second.get() << std::endl;
-            // std::cout << iter.first << std::endl;
-        // }
+
 
     std::cout << "GPT model " << gpt.get_num_params() / 1e6 << "M" <<std::endl;
 
-    TinyStoriesLoader loader("../data/tok4096/", 128, 256, 4096);
+    TinyStoriesLoader loader("../data/tok4096/", 128, 256);
 
     ParamsDict decay_params;
     ParamsDict nodecay_params;

@@ -295,7 +295,9 @@ void TensorImpl::transpose_recovery(std::vector<index_t> dims) {
 }
 
 void TensorImpl::view_recovery(std::vector<index_t> dims) {
-  assert(is_contiguous());
+  if (!is_contiguous()) {
+    contiguous();
+  }
   std::vector<index_t> newDims;
   index_t newDsize = 1;
   for (auto d : dims) {
@@ -313,7 +315,9 @@ void TensorImpl::view_recovery(std::vector<index_t> dims) {
 }
 
 void TensorImpl::view(std::initializer_list<index_t> dims) {
-  assert(is_contiguous());
+  if (!is_contiguous()) {
+    contiguous();
+  }
   std::vector<index_t> old_shape = shape();
   std::vector<index_t> newDims;
   index_t newDsize = 1;
@@ -336,7 +340,9 @@ void TensorImpl::view(std::initializer_list<index_t> dims) {
 }
 
 void TensorImpl::view(std::vector<index_t> dims) {
-  assert(is_contiguous());
+  if (!is_contiguous()) {
+    contiguous();
+  }
   std::vector<index_t> old_shape = shape();
   std::vector<index_t> newDims;
   index_t newDsize = 1;
@@ -540,12 +546,17 @@ __global__ void operator_index_kernel(float* data, float* target, index_t idx) {
   *target = data[idx];
 }
 
-void TensorImpl::recovery() {
-  while( !shape_recovery_queue_.empty()) {
-    contiguous();
+void TensorImpl::recovery(index_t node) {
+  while(shape_recovery_queue_.size() != node) {
     shape_recovery_queue_.back()();
     shape_recovery_queue_.pop_back();
   }
+}
+
+void TensorImpl::setNode(GraphNodePtr n) {
+  next_node_ptr_.reset();
+  next_node_ptr_ = n;
+  next_node_ptr_->setSelfNode(shape_recovery_queue_.size());
 }
 
 namespace tllm {
@@ -591,7 +602,10 @@ std::ostream& operator<<(std::ostream& out, TensorImpl& t) {
 }
 
 void TensorImpl::backward() {
-    if (next_node_ptr_.get() == nullptr) return;
+    if (next_node_ptr_.get() == nullptr) {
+      recovery(0);
+      return;
+    }
     if (ref_count_ == 0) {
         next_node_ptr_->backward(shared_from_this());
         next_node_ptr_.reset();
@@ -629,20 +643,28 @@ void TensorImpl::apply_grad() {
 }
 
 UnaryGraphNode::UnaryGraphNode(TensorImplPtr t)
-  : t_(t) { }
+  : GraphNode(t->getRecoveryQueueNode(), -1, -1), t_(t) { }
 
 void UnaryGraphNode::backward(TensorImplPtr t) {
-  t->recovery();
+  t->recovery(self_recovery_node);
+  t_->recovery(recovery_node);
+  t->contiguous();
+  t_->contiguous();
   grad_fn_(t_, t);
   t_->decreaseRef();
   t_->backward();
 }
 
 BinaryGraphNode::BinaryGraphNode(TensorImplPtr tl, TensorImplPtr tr)
-  : tl_(tl), tr_(tr) { }
+  : GraphNode(-1, tl->getRecoveryQueueNode(), tr->getRecoveryQueueNode()), tl_(tl), tr_(tr) { }
 
 void BinaryGraphNode::backward(TensorImplPtr t) {
-  t->recovery();
+  t->recovery(self_recovery_node);
+  tl_->recovery(recovery_node_l);
+  tr_->recovery(recovery_node_r);
+  t->contiguous();
+  tl_->contiguous();
+  tr_->contiguous();
   grad_fn_l_(tl_, tr_, t);
   grad_fn_r_(tl_, tr_, t);
   tl_->decreaseRef();

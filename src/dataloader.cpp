@@ -33,11 +33,10 @@ int TinyStoriesLoader::getFileSize(const char *fileName) {
 	return filesize;
 }
 
-TinyStoriesLoader::TinyStoriesLoader(string path, index_t batch, index_t len, index_t vocab_size)
+TinyStoriesLoader::TinyStoriesLoader(string path, index_t batch, index_t len)
   : data_path_(path),
     batch_size_(batch),
     max_seq_len_(len),
-    vocab_size_(vocab_size),
     file_iter_len_(0),
     file_id_(-1) {
     
@@ -63,17 +62,21 @@ std::pair<Tensor, Tensor> TinyStoriesLoader::next() {
     }
     // std::cout << file_iter_len_ << std::endl;
     --file_iter_len_;
-    Tensor ret({batch_size_, max_seq_len_ - 1, vocab_size_});
+    Tensor ret({batch_size_, max_seq_len_ - 1});
     Tensor label({batch_size_, max_seq_len_ - 1});
     unsigned short pos; 
-    for (int d = 0; d < batch_size_ * max_seq_len_; ++d) {
-        fins_.read(reinterpret_cast<char*>(&pos), sizeof(unsigned short));
-        // std::cout << d << std::endl;
-        if (d % max_seq_len_ != (max_seq_len_ - 1))
-            ret[(d - (d / max_seq_len_)) * vocab_size_ + pos] = 1;
-        if (d % max_seq_len_ > 0)
-            label[d - 1 - (d / max_seq_len_)] = pos;
+    for (index_t b = 0; b < batch_size_; ++b) {
+        for (index_t s = 0; s < max_seq_len_; ++s) {
+            fins_.read(reinterpret_cast<char*>(&pos), sizeof(unsigned short));
+            if (s != max_seq_len_ - 1) {
+                ret[{b, s}] = pos;
+            }
+            if (s != 0) {
+                label[{b, s - 1}] = pos;
+            }
+        }
     }
+    
     ret.disable_grad();
     label.disable_grad();
 

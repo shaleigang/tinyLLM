@@ -13,7 +13,7 @@ namespace tllm {
 
 class TinyStoriesLoader {
 public:
-    TinyStoriesLoader(string path, index_t batch, index_t len, index_t vocab_size);
+    TinyStoriesLoader(string path, index_t batch, index_t len);
     index_t get_iter_len() { return iter_len_; }
     std::pair<Tensor, Tensor> next();
 
@@ -31,7 +31,6 @@ private:
 
     index_t batch_size_;
     index_t max_seq_len_;
-    index_t vocab_size_;
 };
 
 

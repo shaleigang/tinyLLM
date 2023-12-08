@@ -8,6 +8,15 @@
 using namespace tllm::nn;
 using tllm::Tensor;
 
+std::ostream& tllm::operator<<(std::ostream&output, std::vector<index_t> shape) {
+    output << "(";
+    for (int i = 0; i < shape.size() - 1; ++i) {
+        output << shape[i] << ", ";
+    }
+    output << shape[shape.size() - 1] << ")";
+    return output;
+}
+
 void Module::print() {
     for (auto iter: parameters()) {
         std::cout << iter.first << std::endl;
@@ -275,26 +284,36 @@ ParamsDict TransformerBlock::parameters() {
     };
 }
 
-// Embedding::Embedding(index_t vocab_size, index_t n_embd)
-//   : embs_real({vocab_size, n_embd}),
-//     vocab_size_(vocab_size),
-//     n_embd_(n_embd),
-//     embs(embs_real) {}
-
-// Embedding::Embedding(index_t vocab_size, index_t n_embd, Tensor& weight)
-//   : vocab_size_(vocab_size),
-//     n_embd_(n_embd),
-//     embs(weight) {}
-
 Embedding::Embedding(index_t vocab_size, index_t n_embd)
+  : embs_real({vocab_size, n_embd}),
+    vocab_size_(vocab_size),
+    n_embd_(n_embd),
+    embs(embs_real) {}
+
+Embedding::Embedding(index_t vocab_size, index_t n_embd, Tensor& weight)
   : vocab_size_(vocab_size),
     n_embd_(n_embd),
-    embs({vocab_size, n_embd}) {}
+    embs(weight) {
+        assert(embs.shape()[0] == n_embd);
+        assert(embs.shape()[1] == vocab_size);
+    }
+
+// Embedding::Embedding(index_t vocab_size, index_t n_embd)
+//   : vocab_size_(vocab_size),
+//     n_embd_(n_embd),
+//     embs({vocab_size, n_embd}) {}
 
 
 
 Tensor Embedding::forward(Tensor& idx) {
-    Tensor ret = F::mat_mul(idx, embs);
+    if (embs.shape()[0] != vocab_size_) {
+        embs.transpose(0, 1);
+        Tensor ret = F::emb(idx, embs);
+        embs.transpose(1, 0);
+        return ret;
+    }
+    Tensor ret = F::emb(idx, embs);
+    
     return ret;
 }
 

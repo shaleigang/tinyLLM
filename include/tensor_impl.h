@@ -51,7 +51,8 @@ public:
     void enable_grad() { require_grad_ = true; }
     void disable_grad() { require_grad_ = false; }
     
-    void setNode(GraphNodePtr n) { next_node_ptr_.reset(); next_node_ptr_ = n; }
+    void setNode(GraphNodePtr n);
+    int getRecoveryQueueNode() { return shape_recovery_queue_.size(); }
     GraphNodePtr getNode() { return next_node_ptr_; }
     void increaseRef() { ++ref_count_; }
     void decreaseRef() { --ref_count_; }
@@ -62,7 +63,7 @@ public:
 
     friend std::ostream& operator<<(std::ostream& out, TensorImpl& t);
 
-    void recovery();
+    void recovery(index_t node);
 
 private:
     string device_;
@@ -89,16 +90,21 @@ typedef std::function<void(TensorImplPtr, TensorImplPtr, TensorImplPtr)> BinaryG
 
 class GraphNode {
 public:
-    // GraphNode(index_t node) : recovery_node(node) {}
+    GraphNode(int node, int node_l, int node_r) : recovery_node(node), recovery_node_l(node_l), recovery_node_r(node_r) {}
     virtual void backward(TensorImplPtr t) = 0;
 
     virtual void setGradFn(UnaryGradFn f) = 0;
     virtual void setGradFnL(BinaryGradFn f) = 0;
     virtual void setGradFnR(BinaryGradFn f) = 0;
 
+    void setSelfNode(index_t node) { self_recovery_node = node; }
+
     virtual ~GraphNode() = default;
 
-    index_t recovery_node;
+    int self_recovery_node;
+    int recovery_node;
+    int recovery_node_l;
+    int recovery_node_r;
 };
 
 class UnaryGraphNode : public GraphNode {
@@ -133,6 +139,8 @@ private:
     BinaryGradFn grad_fn_r_;
 };
 }
+
+std::ostream& operator<<(std::ostream&output, std::vector<index_t> shape);
 
 }
 
