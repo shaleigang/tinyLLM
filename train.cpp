@@ -13,13 +13,14 @@ int main() {
     GPT gpt(6, 64, 4, 4096, 256, 0.2, false);
     // gpt.load("/home/slg/work/tinyLLM/ckpt/1900_0.084049/");
     int start_iter = -1;
+    int start_epoch = 0;
     // std::cout << "model loaded." << std::endl;
     gpt.cuda();
 
 
     std::cout << "GPT model " << gpt.get_num_params() / 1e6 << "M" <<std::endl;
 
-    TinyStoriesLoader loader("../data/tok4096/", 128, 256);
+    
 
     ParamsDict decay_params;
     ParamsDict nodecay_params;
@@ -34,32 +35,39 @@ int main() {
 
     AdamW adamw(decay_params, nodecay_params, 0.001, 0.9, 0.95, "cuda");
 
-    for (int i = 0; i < loader.get_iter_len(); ++i) {
-        if (start_iter >= 0) {
-            --start_iter;
-            continue;
+    for (int e = start_epoch; e < 3; ++e) {
+        TinyStoriesLoader loader("../data/tok4096/", 128, 256);
+        float loss_g = 0;
+        for (int i = 0; i < loader.get_iter_len(); ++i) {
+            if (start_iter >= 0) {
+                --start_iter;
+                continue;
+            }
+
+            auto ret = loader.next();
+            Tensor& data = ret.first;
+            Tensor& label = ret.second;
+            data.to("cuda");
+            label.to("cuda");
+            label.view({label.dsize()});
+
+            Tensor loss = gpt.forward(data, label);
+            loss.backward();
+            adamw.step();
+
+            if (i % 1 == 0) {
+                loss.cpu();
+                std::cout << "[" << i << "/" << loader.get_iter_len() << "] " << "loss: " << loss[0] <<std::endl;
+                loss_g = loss[0];
+            }
+
+            if (i != 0 && i % 500 == 0) {
+                std::cout << "saving model" << std::endl;
+                gpt.save("/home/slg/work/tinyLLM/ckpt/epoch" + std::to_string(e) + "_" + std::to_string(i) + "_" + std::to_string(loss[0]) + "/");
+            }
         }
-
-        auto ret = loader.next();
-        Tensor& data = ret.first;
-        Tensor& label = ret.second;
-        data.to("cuda");
-        label.to("cuda");
-        label.view({label.dsize()});
-
-        Tensor loss = gpt.forward(data, label);
-        loss.backward();
-        adamw.step();
-
-        if (i % 1 == 0) {
-            loss.cpu();
-            std::cout << "[" << i << "/" << loader.get_iter_len() << "] " << "loss: " << loss[0] <<std::endl;
-        }
-
-        if (i != 0 && i % 500 == 0) {
-            std::cout << "saving model" << std::endl;
-            gpt.save("/home/slg/work/tinyLLM/ckpt/" + std::to_string(i) + "_" + std::to_string(loss[0]) + "/");
-        }
+        std::cout << "saving model" << std::endl;
+        gpt.save("/home/slg/work/tinyLLM/ckpt/0_epoch" + std::to_string(e) + "_" + std::to_string(loss_g) + "/");
     }
     return 0;
 }
