@@ -11,35 +11,32 @@
 using namespace tllm;
 
 int main() {
-    Tensor idx({2, 5});
-    for (int i = 0; i < idx.dsize(); ++i) {
-        idx[i] = i;
+    Tensor idx1({2, 8});
+    for (int i = 0; i < idx1.dsize(); ++i) {
+        idx1[i] = i % 10;
     }
-    // idx.cuda();
-
-    Tensor liner({10, 20});
-    for (int i = 0; i < liner.dsize(); ++i) {
-        liner[i] = i;
+    idx1.cuda();
+    Tensor t1 = F::softmax(idx1);
+    t1.cpu();
+    for (int i = 0; i < t1.dsize(); ++i) {
+        t1.grad()[i] = i;
     }
-    // liner.cuda();
+    t1.cuda();
+    t1.backward();
 
-    nn::Embedding emb(20, 10, liner);
-    // emb.cuda();
-
-    Tensor t = emb(idx);
-    Tensor t2 = F::mat_mul(t, liner);
-
-    t2.cpu();
+    Tensor idx2({2, 8});
+    for (int i = 0; i < idx2.dsize(); ++i) {
+        idx2[i] = i % 10;
+    }
+    Tensor t2 = F::softmax(idx2);
     for (int i = 0; i < t2.dsize(); ++i) {
-        t2.grad()[i] = 1;
+        t2.grad()[i] = i;
     }
-    // t2.cuda();
     t2.backward();
     
-    std::cout << idx << std::endl;
-    std::cout << liner << std::endl;
-    std::cout << emb.parameters()["embs"] << std::endl;
-    std::cout << t << std::endl;
+    std::cout << idx1 << std::endl;
+    std::cout << t1 << std::endl;
+    std::cout << idx2 << std::endl;
     std::cout << t2 << std::endl;
 
 

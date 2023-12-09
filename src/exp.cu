@@ -118,8 +118,8 @@ void Minus::forward_process(Tensor& x1, Tensor& x) {
     }
     return;
   } else {
-    const int block_size = 256;
-    const int grid_size = (x.dsize() + 255) / 256;
+    const int block_size = 512;
+    const int grid_size = (x.dsize() + 511) / 512;
     minus_kernel<<<grid_size, block_size>>>(x1.data(), x.data(), x.dsize());
     cudaDeviceSynchronize();
     auto error = cudaGetLastError();
@@ -150,8 +150,8 @@ void Minus::grad_fn(TensorImplPtr x1, TensorImplPtr x) {
       x1->grad_[i] -= x->grad_[i];
     }
   } else {
-    const int block_size = 256;
-    const int grid_size = (x1->dsize() + 255) / 256;
+    const int block_size = 512;
+    const int grid_size = (x1->dsize() + 511) / 512;
     sub_kernel<<<grid_size, block_size>>>(x1->grad_, x1->grad_, x->grad_,
                                           x1->dsize(), x->dsize());
     cudaDeviceSynchronize();
@@ -173,8 +173,8 @@ void Add::forward_process(Tensor& x1, Tensor& x2, Tensor& x) {
     }
     return;
   } else {
-    const int block_size = 256;
-    const int grid_size = (x1.dsize() + 255) / 256;
+    const int block_size = 512;
+    const int grid_size = (x1.dsize() + 511) / 512;
     add_kernel<<<grid_size, block_size>>>(x.data(), x1.data(), x2.data(),
                                           x1.dsize(), x2.dsize());
     cudaDeviceSynchronize();
@@ -215,8 +215,8 @@ void Add::lhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2, TensorImplPtr x) {
       x1->grad_[i] += x->grad_[i];
     }
   } else {
-    const int block_size = 256;
-    const int grid_size = (x->dsize() + 255) / 256;
+    const int block_size = 512;
+    const int grid_size = (x->dsize() + 511) / 512;
     self_add_kernel<<<grid_size, block_size>>>(x1->grad_, x->grad_, x1->dsize(),
                                                x->dsize());
     cudaDeviceSynchronize();
@@ -237,8 +237,8 @@ void Add::rhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2, TensorImplPtr x) {
       x2->grad_[i % x2->dsize()] += x->grad_[i];
     }
   } else {
-    const int block_size = 256;
-    const int grid_size = (x->dsize() + 255) / 256;
+    const int block_size = 512;
+    const int grid_size = (x->dsize() + 511) / 512;
     self_add_kernel<<<grid_size, block_size>>>(x2->grad_, x->grad_, x2->dsize(),
                                                x->dsize());
     cudaDeviceSynchronize();
@@ -258,8 +258,8 @@ void Sub::forward_process(Tensor& x1, Tensor& x2, Tensor& x) {
     }
     return;
   } else {
-    const int block_size = 256;
-    const int grid_size = (x1.dsize() + 255) / 256;
+    const int block_size = 512;
+    const int grid_size = (x1.dsize() + 511) / 512;
     sub_kernel<<<grid_size, block_size>>>(x.data(), x1.data(), x2.data(),
                                           x1.dsize(), x2.dsize());
     cudaDeviceSynchronize();
@@ -300,8 +300,8 @@ void Sub::lhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2, TensorImplPtr x) {
       x1->grad_[i] += x->grad_[i];
     }
   } else {
-    const int block_size = 256;
-    const int grid_size = (x->dsize() + 255) / 256;
+    const int block_size = 512;
+    const int grid_size = (x->dsize() + 511) / 512;
     self_add_kernel<<<grid_size, block_size>>>(x1->grad_, x->grad_, x1->dsize(),
                                                x->dsize());
     cudaDeviceSynchronize();
@@ -322,8 +322,8 @@ void Sub::rhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2, TensorImplPtr x) {
       x2->grad_[i % x2->dsize()] -= x->grad_[i];
     }
   } else {
-    const int block_size = 256;
-    const int grid_size = (x->dsize() + 255) / 256;
+    const int block_size = 512;
+    const int grid_size = (x->dsize() + 511) / 512;
     self_sub_kernel<<<grid_size, block_size>>>(x2->grad_, x->grad_, x2->dsize(),
                                                x->dsize());
     cudaDeviceSynchronize();
@@ -343,8 +343,8 @@ void Mul::forward_process(Tensor& x1, Tensor& x2, Tensor& x) {
     }
     return;
   } else {
-    const int block_size = 256;
-    const int grid_size = (x1.dsize() + 255) / 256;
+    const int block_size = 512;
+    const int grid_size = (x1.dsize() + 511) / 512;
     mul_kernel<<<grid_size, block_size>>>(x.data(), x1.data(), x2.data(),
                                           x1.dsize(), x2.dsize());
     cudaDeviceSynchronize();
@@ -377,8 +377,8 @@ void Mul::lhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2, TensorImplPtr x) {
       x1->grad_[i] += (x->grad_[i] * (*x2)[i % x2->dsize()]);
     }
   } else {
-    const int block_size = 256;
-    const int grid_size = (x->dsize() + 255) / 256;
+    const int block_size = 512;
+    const int grid_size = (x->dsize() + 511) / 512;
     mul_backward_kernel<<<grid_size, block_size>>>(
         x1->grad_, x->grad_, x2->data_, x->dsize(), x1->dsize(), x->dsize(),
         x2->dsize());
@@ -401,8 +401,8 @@ void Mul::rhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2, TensorImplPtr x) {
       x2->grad_[i % x2->dsize()] += (x->grad_[i] * (*x1)[i]);
     }
   } else {
-    const int block_size = 256;
-    const int grid_size = (x->dsize() + 255) / 256;
+    const int block_size = 512;
+    const int grid_size = (x->dsize() + 511) / 512;
     mul_backward_kernel<<<grid_size, block_size>>>(
         x2->grad_, x->grad_, x1->data_, x->dsize(), x2->dsize(), x->dsize(),
         x1->dsize());
@@ -459,8 +459,8 @@ void ScalarAdd::forward_process(Tensor& x1, Tensor& x) {
       x[i] = x1[i] + val_;
     }
   } else {
-    const int block_size = 256;
-    const int grid_size = (x1.dsize() + 255) / 256;
+    const int block_size = 512;
+    const int grid_size = (x1.dsize() + 511) / 512;
     scalar_add_kernel<<<grid_size, block_size>>>(x.data(), x1.data(), val_,
                                                  x1.dsize());
     cudaDeviceSynchronize();
@@ -479,8 +479,8 @@ void ScalarAdd::grad_fn(TensorImplPtr x1, TensorImplPtr x) {
       x1->grad_[i] += x->grad_[i];
     }
   } else {
-    const int block_size = 256;
-    const int grid_size = (x1->dsize() + 255) / 256;
+    const int block_size = 512;
+    const int grid_size = (x1->dsize() + 511) / 512;
     self_add_kernel<<<grid_size, block_size>>>(x1->grad_, x->grad_, x1->dsize(),
                                                x->dsize());
     cudaDeviceSynchronize();
@@ -521,8 +521,8 @@ void ScalarMul::forward_process(Tensor& x1, Tensor& x) {
       x[i] = x1[i] * val_;
     }
   } else {
-    const int block_size = 256;
-    const int grid_size = (x1.dsize() + 255) / 256;
+    const int block_size = 512;
+    const int grid_size = (x1.dsize() + 511) / 512;
     scalar_mul_kernel<<<grid_size, block_size>>>(x.data(), x1.data(), val_,
                                                  x1.dsize());
     cudaDeviceSynchronize();
@@ -541,8 +541,8 @@ void ScalarMul::grad_fn(TensorImplPtr x1, TensorImplPtr x) {
       x1->grad_[i] += (x->grad_[i] * val_);
     }
   } else {
-    const int block_size = 256;
-    const int grid_size = (x1->dsize() + 255) / 256;
+    const int block_size = 512;
+    const int grid_size = (x1->dsize() + 511) / 512;
     scalar_mul_backward_kernel<<<grid_size, block_size>>>(x1->grad_, x->grad_,
                                                           val_, x->dsize());
     cudaDeviceSynchronize();

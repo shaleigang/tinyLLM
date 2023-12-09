@@ -10,10 +10,10 @@
 using namespace tllm;
 
 int main() {
-    GPT gpt(6, 64, 8, 4096, 256, 0.2, false);
-    // gpt.load("/home/slg/work/tinyLLM/ckpt/");
+    GPT gpt(6, 64, 4, 4096, 256, 0.2, false);
+    // gpt.load("/home/slg/work/tinyLLM/ckpt/1900_0.084049/");
+    int start_iter = -1;
     // std::cout << "model loaded." << std::endl;
-    // GPT gpt(6, 8, 2, 10, 5, 0.2, false);
     gpt.cuda();
 
 
@@ -32,37 +32,31 @@ int main() {
         }
     }
 
-    AdamW adamw(decay_params, nodecay_params, 5e-4, 0.9, 0.95, "cuda");
+    AdamW adamw(decay_params, nodecay_params, 0.001, 0.9, 0.95, "cuda");
 
     for (int i = 0; i < loader.get_iter_len(); ++i) {
-    // for (int i = 0; i < 5000; ++i) {
+        if (start_iter >= 0) {
+            --start_iter;
+            continue;
+        }
+
         auto ret = loader.next();
         Tensor& data = ret.first;
         Tensor& label = ret.second;
         data.to("cuda");
         label.to("cuda");
-        // Tensor data = Tensor({2, 4, 10});
-        // memset(data.data(), 0, sizeof(float) * 80);
-        // Tensor label = Tensor({2, 4});
-        // memset(label.data(), 0, sizeof(float) * 8);
-        // for (int p = 0; p < 8; ++p) {
-        //     data[p * 10 + p] = 1;
-        //     label[p] = p;
-        // }
-        // std::cout << "data: " << std::endl;
-        // std::cout << data << std::endl;
-        // std::cout << "label: " << std::endl;
-        // std::cout << label << std::endl;
-        
         label.view({label.dsize()});
+
         Tensor loss = gpt.forward(data, label);
         loss.backward();
-        loss.cpu();
-        std::cout << "[" << i << "/" << loader.get_iter_len() << "] " << "loss: " << loss[0] <<std::endl;
-    
         adamw.step();
 
-        if (i != 0 && i % 1000 == 0) {
+        if (i % 1 == 0) {
+            loss.cpu();
+            std::cout << "[" << i << "/" << loader.get_iter_len() << "] " << "loss: " << loss[0] <<std::endl;
+        }
+
+        if (i != 0 && i % 500 == 0) {
             std::cout << "saving model" << std::endl;
             gpt.save("/home/slg/work/tinyLLM/ckpt/" + std::to_string(i) + "_" + std::to_string(loss[0]) + "/");
         }

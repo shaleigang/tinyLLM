@@ -96,7 +96,7 @@ void Module::load(string path) {
     auto params = parameters();
     string name;
     index_t len;
-
+    std::cout << "model loading..." << std::endl;
     while (offset_in >> name >> len) {
         data_in.read((char*)params[name].data(), len);
     }

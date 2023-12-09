@@ -9,10 +9,10 @@ bool del_cpu(float* p) { delete[] p; }
 bool del_gpu(float* p) {
   cudaFree(p);
   auto error = cudaGetLastError();
-    if (cudaSuccess != error) {
-      printf("%s\n", cudaGetErrorString(error));
-      assert(false);
-    }
+  if (cudaSuccess != error) {
+    printf("%s\n", cudaGetErrorString(error));
+    assert(false);
+  }
 }
 
 AdamW::AdamW(detail::ParamsDict decay_params, detail::ParamsDict nodecay_params,
@@ -100,9 +100,9 @@ AdamW::AdamW(detail::ParamsDict decay_params, detail::ParamsDict nodecay_params,
   }
 }
 
-__global__ void adamw_kernel(float* grad, float* data, float* m1, float* m2, index_t t,
-                             float lr, float beta1, float beta2, float ep,
-                             float weight_decay, index_t dsize) {
+__global__ void adamw_kernel(float* grad, float* data, float* m1, float* m2,
+                             index_t t, float lr, float beta1, float beta2,
+                             float ep, float weight_decay, index_t dsize) {
   const int i = blockIdx.x * blockDim.x + threadIdx.x;
   if (i < dsize) {
     m1[i] = beta1 * m1[i] + (1 - beta1) * grad[i];
@@ -130,11 +130,11 @@ void AdamW::step() {
                              weight_decay_ * p.data()[i]);
       }
     } else {
-      const int block_size = 256;
-      const int grid_size = (p.dsize() + 255) / 256;
-      adamw_kernel<<<grid_size, block_size>>>(p.grad(), p.data(), m1.get(), m2.get(), t,
-                                              lr_, beta1_, beta2_, ep,
-                                              weight_decay_, p.dsize());
+      const int block_size = 512;
+      const int grid_size = (p.dsize() + 511) / 512;
+      adamw_kernel<<<grid_size, block_size>>>(p.grad(), p.data(), m1.get(),
+                                              m2.get(), t, lr_, beta1_, beta2_,
+                                              ep, weight_decay_, p.dsize());
       cudaDeviceSynchronize();
       auto error = cudaGetLastError();
       if (cudaSuccess != error) {
@@ -160,11 +160,11 @@ void AdamW::step() {
         p.grad()[i] = -lr * (m1.get()[i] / (sqrt(m2.get()[i]) + ep));
       }
     } else {
-      const int block_size = 256;
-      const int grid_size = (p.dsize() + 255) / 256;
-      adamw_kernel<<<grid_size, block_size>>>(p.grad(), p.data(), m1.get(), m2.get(), t,
-                                              lr_, beta1_, beta2_, ep, 0,
-                                              p.dsize());
+      const int block_size = 512;
+      const int grid_size = (p.dsize() + 511) / 512;
+      adamw_kernel<<<grid_size, block_size>>>(p.grad(), p.data(), m1.get(),
+                                              m2.get(), t, lr_, beta1_, beta2_,
+                                              ep, 0, p.dsize());
       cudaDeviceSynchronize();
       auto error = cudaGetLastError();
       if (cudaSuccess != error) {

@@ -12,9 +12,8 @@ __global__ void contiguous_kernel(float* src, float* dst, index_t dsize,
 
 __global__ void operator_index_kernel(float* data, float* target, index_t idx);
 
-
 TensorImpl::TensorImpl(std::initializer_list<index_t> dims, string device,
-               bool require_grad)
+                       bool require_grad)
     : dims_(dims), require_grad_(require_grad), device_(device), ref_count_(0) {
   // init stride_
   stride_ = std::vector<index_t>(dims_.size(), 0);
@@ -29,10 +28,12 @@ TensorImpl::TensorImpl(std::initializer_list<index_t> dims, string device,
   if (device_ == "cpu") {
     data_ = (float*)malloc(sizeof(float) * stride);
     grad_ = (float*)malloc(sizeof(float) * stride);
+    // memset(data_, 0, sizeof(float) * stride);
     memset(grad_, 0, sizeof(float) * stride);
   } else if (device_ == "cuda") {
     cudaMalloc((void**)&data_, sizeof(float) * stride);
     cudaMalloc((void**)&grad_, sizeof(float) * stride);
+    // cudaMemset(data_, 0, sizeof(float) * stride);
     cudaMemset(grad_, 0, sizeof(float) * stride);
     auto error = cudaGetLastError();
     if (cudaSuccess != error) {
@@ -46,7 +47,7 @@ TensorImpl::TensorImpl(std::initializer_list<index_t> dims, string device,
 }
 
 TensorImpl::TensorImpl(std::vector<index_t> dims, string device,
-               bool require_grad)
+                       bool require_grad)
     : dims_(dims), require_grad_(require_grad), device_(device), ref_count_(0) {
   // init stride_
   stride_ = std::vector<index_t>(dims_.size(), 0);
@@ -61,11 +62,13 @@ TensorImpl::TensorImpl(std::vector<index_t> dims, string device,
   if (device_ == "cpu") {
     data_ = (float*)malloc(sizeof(float) * stride);
     grad_ = (float*)malloc(sizeof(float) * stride);
+    // memset(data_, 0, sizeof(float) * stride);
     memset(grad_, 0, sizeof(float) * stride);
 
   } else if (device_ == "cuda") {
     cudaMalloc((void**)&data_, sizeof(float) * stride);
     cudaMalloc((void**)&grad_, sizeof(float) * stride);
+    // cudaMemset(data_, 0, sizeof(float) * stride);
     cudaMemset(grad_, 0, sizeof(float) * stride);
     auto error = cudaGetLastError();
     if (cudaSuccess != error) {
@@ -92,9 +95,11 @@ TensorImpl::TensorImpl(const TensorImpl& t)
     std::memcpy(grad_, t.grad_, sizeof(float) * t.dsize());
   } else {
     cudaMalloc((void**)&data_, sizeof(float) * t.dsize());
-    cudaMemcpy(data_, t.data_, sizeof(float) * t.dsize(), cudaMemcpyDeviceToDevice);
+    cudaMemcpy(data_, t.data_, sizeof(float) * t.dsize(),
+               cudaMemcpyDeviceToDevice);
     cudaMalloc((void**)&grad_, sizeof(float) * t.dsize());
-    cudaMemcpy(grad_, t.grad_, sizeof(float) * t.dsize(), cudaMemcpyDeviceToDevice);
+    cudaMemcpy(grad_, t.grad_, sizeof(float) * t.dsize(),
+               cudaMemcpyDeviceToDevice);
     auto error = cudaGetLastError();
     if (cudaSuccess != error) {
       printf("%s\n", cudaGetErrorString(error));
@@ -104,17 +109,17 @@ TensorImpl::TensorImpl(const TensorImpl& t)
 }
 
 TensorImpl::TensorImpl(TensorImpl&& t) {
-    device_ = t.device_;
-    require_grad_ = t.require_grad_;
-    dims_ = t.dims_;
-    stride_ = t.stride_;
-    dsize_ = t.dsize_;
-    next_node_ptr_ = t.next_node_ptr_;
-    ref_count_ = t.ref_count_;
-    data_ = t.data_;
-    grad_ = t.grad_;
-    t.data_ = nullptr;
-    t.grad_ = nullptr;
+  device_ = t.device_;
+  require_grad_ = t.require_grad_;
+  dims_ = t.dims_;
+  stride_ = t.stride_;
+  dsize_ = t.dsize_;
+  next_node_ptr_ = t.next_node_ptr_;
+  ref_count_ = t.ref_count_;
+  data_ = t.data_;
+  grad_ = t.grad_;
+  t.data_ = nullptr;
+  t.grad_ = nullptr;
 }
 
 TensorImpl::~TensorImpl() {
@@ -149,10 +154,12 @@ TensorImpl& TensorImpl::operator=(const TensorImpl& t) {
   } else {
     cudaFree(data_);
     cudaMalloc((void**)&data_, sizeof(float) * t.dsize());
-    cudaMemcpy(data_, t.data_, sizeof(float) * t.dsize(), cudaMemcpyDeviceToDevice);
+    cudaMemcpy(data_, t.data_, sizeof(float) * t.dsize(),
+               cudaMemcpyDeviceToDevice);
     cudaFree(grad_);
     cudaMalloc((void**)&grad_, sizeof(float) * t.dsize());
-    cudaMemcpy(grad_, t.grad_, sizeof(float) * t.dsize(), cudaMemcpyDeviceToDevice);
+    cudaMemcpy(grad_, t.grad_, sizeof(float) * t.dsize(),
+               cudaMemcpyDeviceToDevice);
     auto error = cudaGetLastError();
     if (cudaSuccess != error) {
       printf("%s\n", cudaGetErrorString(error));
@@ -265,7 +272,6 @@ index_t TensorImpl::get_offset(std::initializer_list<index_t> ids) const {
   return offset;
 }
 
-
 index_t TensorImpl::get_offset(std::vector<index_t> ids) const {
   assert(ids.size() == ndim());
   index_t offset = 0, i = 0;
@@ -280,10 +286,8 @@ void TensorImpl::transpose(index_t dim1, index_t dim2) {
   std::swap(dims_[dim1], dims_[dim2]);
   std::swap(stride_[dim1], stride_[dim2]);
 
-  shape_recovery_queue_.push_back(
-    std::bind(&TensorImpl::transpose_recovery, this,
-            std::vector<index_t>{dim1, dim2})
-  );
+  shape_recovery_queue_.push_back(std::bind(
+      &TensorImpl::transpose_recovery, this, std::vector<index_t>{dim1, dim2}));
 
   return;
 }
@@ -335,8 +339,7 @@ void TensorImpl::view(std::initializer_list<index_t> dims) {
   }
 
   shape_recovery_queue_.push_back(
-    std::bind(&TensorImpl::view_recovery, this, old_shape)
-  );
+      std::bind(&TensorImpl::view_recovery, this, old_shape));
 }
 
 void TensorImpl::view(std::vector<index_t> dims) {
@@ -360,8 +363,7 @@ void TensorImpl::view(std::vector<index_t> dims) {
   }
 
   shape_recovery_queue_.push_back(
-    std::bind(&TensorImpl::view_recovery, this, old_shape)
-  );
+      std::bind(&TensorImpl::view_recovery, this, old_shape));
 }
 
 void TensorImpl::to(string dev) {
@@ -373,8 +375,7 @@ void TensorImpl::to(string dev) {
     cudaFree(data_);
     data_ = newData;
     float* newGrad = (float*)malloc(sizeof(float) * dsize_);
-    cudaMemcpy(newGrad, grad_, sizeof(float) * dsize_,
-                 cudaMemcpyDeviceToHost);
+    cudaMemcpy(newGrad, grad_, sizeof(float) * dsize_, cudaMemcpyDeviceToHost);
     cudaFree(grad_);
     grad_ = newGrad;
     auto error = cudaGetLastError();
@@ -390,8 +391,7 @@ void TensorImpl::to(string dev) {
     data_ = newData;
     float* newGrad = nullptr;
     cudaMalloc((void**)&newGrad, sizeof(float) * dsize_);
-    cudaMemcpy(newGrad, grad_, sizeof(float) * dsize_,
-                 cudaMemcpyHostToDevice);
+    cudaMemcpy(newGrad, grad_, sizeof(float) * dsize_, cudaMemcpyHostToDevice);
     free(grad_);
     grad_ = newGrad;
     auto error = cudaGetLastError();
@@ -486,8 +486,8 @@ void TensorImpl::contiguous() {
       printf("%s\n", cudaGetErrorString(error));
       assert(false);
     }
-    const int block_size = 256;
-    const int grid_size = (dsize_ + 255) / 256;
+    const int block_size = 512;
+    const int grid_size = (dsize_ + 511) / 512;
 
     contiguous_kernel<<<grid_size, block_size>>>(data_, newData, dsize_,
                                                  dims_.size(), stride_device,
@@ -504,8 +504,8 @@ void TensorImpl::contiguous() {
         assert(false);
       }
 
-      const int block_size = 256;
-      const int grid_size = (dsize_ + 255) / 256;
+      const int block_size = 512;
+      const int grid_size = (dsize_ + 511) / 512;
 
       contiguous_kernel<<<grid_size, block_size>>>(grad_, newGrad, dsize_,
                                                    dims_.size(), stride_device,
@@ -547,7 +547,7 @@ __global__ void operator_index_kernel(float* data, float* target, index_t idx) {
 }
 
 void TensorImpl::recovery(index_t node) {
-  while(shape_recovery_queue_.size() != node) {
+  while (shape_recovery_queue_.size() != node) {
     shape_recovery_queue_.back()();
     shape_recovery_queue_.pop_back();
   }
@@ -563,87 +563,85 @@ namespace tllm {
 namespace detail {
 
 std::ostream& operator<<(std::ostream& out, TensorImpl& t) {
-    string old_device = t.device();
-    t.to("cpu");
-    index_t col = t.shape()[t.ndim() - 1];
-    std::vector<index_t> order_stride(t.dims_.size(), 0);
-    int stride = 1;
-    for (int i = t.dims_.size() - 1; i >= 0; --i) {
-        order_stride[i] = stride;
-        stride *= t.dims_[i];
+  string old_device = t.device();
+  t.to("cpu");
+  index_t col = t.shape()[t.ndim() - 1];
+  std::vector<index_t> order_stride(t.dims_.size(), 0);
+  int stride = 1;
+  for (int i = t.dims_.size() - 1; i >= 0; --i) {
+    order_stride[i] = stride;
+    stride *= t.dims_[i];
+  }
+  out << "data: " << std::endl;
+  std::vector<index_t> pos(t.dims_.size(), 0);
+  for (int i = 0; i < t.dsize(); ++i) {
+    int idx = i;
+    for (int p = 0; p < t.dims_.size(); ++p) {
+      pos[p] = idx / order_stride[p];
+      idx %= order_stride[p];
     }
-    out << "data: " << std::endl;
-    std::vector<index_t> pos(t.dims_.size(), 0);
-    for(int i = 0; i < t.dsize(); ++i) {
-        int idx = i;
-        for (int p = 0; p < t.dims_.size(); ++p) {
-            pos[p] = idx / order_stride[p];
-            idx %= order_stride[p];
-        }
-        out << t[pos] << ", ";
-        if ((i + 1) % col == 0) {
-            out << std::endl;
-        }
+    out << t[pos] << ", ";
+    if ((i + 1) % col == 0) {
+      out << std::endl;
     }
+  }
 
-        out << "grad: " << std::endl;
-        for(int i = 0; i < t.dsize(); ++i) {
-            out << t.grad_[i] << ", ";
-            if ((i + 1) % col == 0) {
-                out << std::endl;
-        }
+  out << "grad: " << std::endl;
+  for (int i = 0; i < t.dsize(); ++i) {
+    out << t.grad_[i] << ", ";
+    if ((i + 1) % col == 0) {
+      out << std::endl;
     }
-    t.to(old_device);
-    
-    return out;
+  }
+  t.to(old_device);
+
+  return out;
 }
 
-}
-}
+}  // namespace detail
+}  // namespace tllm
 
 void TensorImpl::backward() {
-    if (next_node_ptr_.get() == nullptr) {
-      recovery(0);
-      return;
-    }
-    if (ref_count_ == 0) {
-        next_node_ptr_->backward(shared_from_this());
-        next_node_ptr_.reset();
-    }
+  if (next_node_ptr_.get() == nullptr) {
+    recovery(0);
+    return;
+  }
+  if (ref_count_ == 0) {
+    next_node_ptr_->backward(shared_from_this());
+    next_node_ptr_.reset();
+  }
 }
 
 void TensorImpl::zero_grad() {
-    if (device_ == "cpu") {
-        memset(grad_, 0, sizeof(float) * dsize_);
-    }
-    else {
-        cudaMemset(grad_, 0, sizeof(float) * dsize_);
-    }
+  if (device_ == "cpu") {
+    memset(grad_, 0, sizeof(float) * dsize_);
+  } else {
+    cudaMemset(grad_, 0, sizeof(float) * dsize_);
+  }
 }
 
 __global__ void apply_grad_kernel(float* data, float* grad, index_t dsize) {
-    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx < dsize) {
-        data[idx] -= grad[idx];
-    }
+  const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < dsize) {
+    data[idx] -= grad[idx];
+  }
 }
 
 void TensorImpl::apply_grad() {
-    if (device_ == "cpu") {
-        for(int i = 0; i < dsize_; ++i) {
-            data_[i] -= grad_[i];
-        }
+  if (device_ == "cpu") {
+    for (int i = 0; i < dsize_; ++i) {
+      data_[i] -= grad_[i];
     }
-    else {
-        const int block_size = 256;
-        const int grid_size = (dsize_ + 255) / 256;
-        apply_grad_kernel<<<grid_size, block_size>>>(data_, grad_, dsize_);
-    }
-    zero_grad();
+  } else {
+    const int block_size = 512;
+    const int grid_size = (dsize_ + 511) / 512;
+    apply_grad_kernel<<<grid_size, block_size>>>(data_, grad_, dsize_);
+  }
+  zero_grad();
 }
 
 UnaryGraphNode::UnaryGraphNode(TensorImplPtr t)
-  : GraphNode(t->getRecoveryQueueNode(), -1, -1), t_(t) { }
+    : GraphNode(t->getRecoveryQueueNode(), -1, -1), t_(t) {}
 
 void UnaryGraphNode::backward(TensorImplPtr t) {
   t->recovery(self_recovery_node);
@@ -656,7 +654,9 @@ void UnaryGraphNode::backward(TensorImplPtr t) {
 }
 
 BinaryGraphNode::BinaryGraphNode(TensorImplPtr tl, TensorImplPtr tr)
-  : GraphNode(-1, tl->getRecoveryQueueNode(), tr->getRecoveryQueueNode()), tl_(tl), tr_(tr) { }
+    : GraphNode(-1, tl->getRecoveryQueueNode(), tr->getRecoveryQueueNode()),
+      tl_(tl),
+      tr_(tr) {}
 
 void BinaryGraphNode::backward(TensorImplPtr t) {
   t->recovery(self_recovery_node);
