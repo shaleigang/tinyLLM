@@ -6,15 +6,21 @@
 
 #include <cstring>
 #include <cmath>
+#include <cassert>
 
 using namespace tllm;
 
-int main() {
+int main(int argc, char* argv[]) {
+    if (argc != 4) {
+        std::cout << "Usage: ./train [model_path] [start_epoch] [start_iter]" << std::endl;
+        exit(0);
+    }
+
     GPT gpt(6, 64, 4, 4096, 256, 0.2, false);
-    // gpt.load("/home/slg/work/tinyLLM/ckpt/1900_0.084049/");
-    int start_iter = -1;
-    int start_epoch = 0;
-    // std::cout << "model loaded." << std::endl;
+    gpt.load(argv[1]);
+    int start_iter = atoi(argv[3]);
+    int start_epoch = atoi(argv[2]);
+    std::cout << "model loaded." << std::endl;
     gpt.cuda();
 
 
@@ -39,7 +45,7 @@ int main() {
         TinyStoriesLoader loader("../data/tok4096/", 128, 256);
         float loss_g = 0;
         for (int i = 0; i < loader.get_iter_len(); ++i) {
-            if (start_iter >= 0) {
+            if (start_iter > 0) {
                 --start_iter;
                 continue;
             }
@@ -53,7 +59,6 @@ int main() {
 
             Tensor loss = gpt.forward(data, label);
             loss.backward();
-            adamw.step();
 
             if (i % 1 == 0) {
                 loss.cpu();
@@ -62,12 +67,15 @@ int main() {
             }
 
             if (i != 0 && i % 500 == 0) {
-                std::cout << "saving model" << std::endl;
                 gpt.save("/home/slg/work/tinyLLM/ckpt/epoch" + std::to_string(e) + "_" + std::to_string(i) + "_" + std::to_string(loss[0]) + "/");
+                std::cout << "model saved" << std::endl;
             }
+
+            adamw.step();
         }
         std::cout << "saving model" << std::endl;
         gpt.save("/home/slg/work/tinyLLM/ckpt/0_epoch" + std::to_string(e) + "_" + std::to_string(loss_g) + "/");
+        std::cout << "model saved" << std::endl;
     }
     return 0;
 }

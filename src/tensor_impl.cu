@@ -551,6 +551,7 @@ void TensorImpl::recovery(index_t node) {
     shape_recovery_queue_.back()();
     shape_recovery_queue_.pop_back();
   }
+  contiguous();
 }
 
 void TensorImpl::setNode(GraphNodePtr n) {

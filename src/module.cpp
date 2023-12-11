@@ -64,7 +64,7 @@ void Module::save(string path) {
     string offset_path = path + "model.index";
 
     std::ofstream data_out(bin_path, std::ios::binary | std::ios::trunc);
-    std::ofstream offset_out(offset_path);
+    std::ofstream offset_out(offset_path, std::ios::trunc);
 
     for (auto iter : parameters()) {
         Tensor& t = iter.second.get();
@@ -75,6 +75,10 @@ void Module::save(string path) {
 }
 
 void Module::load(string path) {
+    if (path == "restart") {
+        return;
+    }
+
     string old_device = device();
     cpu();
 
@@ -100,7 +104,6 @@ void Module::load(string path) {
     while (offset_in >> name >> len) {
         data_in.read((char*)params[name].data(), len);
     }
-
     to(old_device);
 }
 

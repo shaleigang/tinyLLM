@@ -946,7 +946,7 @@ __global__ void softmax_kernel(float* x1, float* x, int N, index_t dim,
     int offset = thread_idx * N + i;
     if (offset < dim && head_offset + offset < dsize) {
       x[head_offset + offset] = exp(x1[head_offset + offset]) / exp_sum;
-      assert(x[head_offset + offset] < 1);
+      assert(x[head_offset + offset] <= 1);
     }
   }
 }

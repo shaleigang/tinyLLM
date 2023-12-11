@@ -7,38 +7,29 @@
 #include "dataloader.h"
 
 #include <unistd.h>
+#include <cassert>
 
 using namespace tllm;
 
 int main() {
-    Tensor idx1({2, 8});
-    for (int i = 0; i < idx1.dsize(); ++i) {
-        idx1[i] = i % 10;
-    }
-    idx1.cuda();
-    Tensor t1 = F::softmax(idx1);
-    t1.cpu();
-    for (int i = 0; i < t1.dsize(); ++i) {
-        t1.grad()[i] = i;
-    }
-    t1.cuda();
-    t1.backward();
 
-    Tensor idx2({2, 8});
-    for (int i = 0; i < idx2.dsize(); ++i) {
-        idx2[i] = i % 10;
-    }
-    Tensor t2 = F::softmax(idx2);
-    for (int i = 0; i < t2.dsize(); ++i) {
-        t2.grad()[i] = i;
-    }
-    t2.backward();
-    
-    std::cout << idx1 << std::endl;
-    std::cout << t1 << std::endl;
-    std::cout << idx2 << std::endl;
-    std::cout << t2 << std::endl;
+    GPT gpt(6, 64, 4, 4096, 256, 0.2, false);
+    gpt.save("/home/slg/work/tinyLLM/ckpt/test/");
+    gpt.cuda();
 
+    GPT gpt2(6, 64, 4, 4096, 256, 0.2, false);
+    gpt2.load("/home/slg/work/tinyLLM/ckpt/test/");
+    auto param2 = gpt2.parameters();
+
+    gpt.cpu();
+    for (auto iter : gpt.parameters()) {
+        string name = iter.first;
+        Tensor& t = iter.second.get();
+        Tensor& t2 = param2[name];
+        for (int i = 0; i < t.dsize(); ++i) {
+            assert(t[i] == t2[i]);
+        }
+    }
 
     return 0;
 }
