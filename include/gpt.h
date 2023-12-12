@@ -1,6 +1,7 @@
 #pragma once
 
 #include "module.h"
+#include "tokenizer.h"
 
 using namespace tllm;
 
@@ -20,10 +21,12 @@ public:
     Tensor forward(Tensor& idx, Tensor& targets); // target: (vocab_size) = B * T
     virtual ParamsDict parameters(void) override;
 
+    void generate(string text, Tokenizer& tokenizer);
+
+private:
     void init_weight();
     Tensor get_pos_ids(index_t T);
 
-private:
     nn::Embedding wpe;
     // nn::Dropout drop;
     nn::LayerNorm ln_f;
@@ -31,7 +34,6 @@ private:
     nn::Linear lm_head;
     nn::Embedding wte;
 
-private:
     index_t block_size_;
     index_t vocab_size_;
 };

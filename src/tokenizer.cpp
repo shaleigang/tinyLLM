@@ -48,7 +48,9 @@ Tokenizer::Tokenizer(string path, int vocab_size)
 
 string Tokenizer::decode(int prev_token, int token) {
   string piece = vocab_[token];
-  piece.erase(0, piece.find_first_not_of(" "));
+  if (prev_token == 1 && piece[0] == ' ') { 
+    piece.erase(0, 1);
+  }
 
   unsigned char byte_val;
   if (sscanf(piece.c_str(), "<0x%02hhX>", &byte_val) == 1) {
@@ -168,7 +170,7 @@ Tensor Tokenizer::encode(string text, int8_t bos, int8_t eos) {
 
     free(str_buffer);
     index_t len = tokens.size();
-    Tensor ret({len});
+    Tensor ret({1, len});
     for (int i = 0; i < len; ++i) {
       ret[i] = tokens[i];
     }

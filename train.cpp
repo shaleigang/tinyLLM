@@ -17,15 +17,7 @@ int main(int argc, char* argv[]) {
     }
 
     GPT gpt(6, 64, 4, 4096, 256, 0.2, false);
-    gpt.load(argv[1]);
-    int start_iter = atoi(argv[3]);
-    int start_epoch = atoi(argv[2]);
-    gpt.cuda();
-
-
     std::cout << "GPT model " << gpt.get_num_params() / 1e6 << "M" <<std::endl;
-
-    
 
     ParamsDict decay_params;
     ParamsDict nodecay_params;
@@ -39,6 +31,13 @@ int main(int argc, char* argv[]) {
     }
 
     AdamW adamw(decay_params, nodecay_params, 0.001, 0.9, 0.95, "cuda");
+
+    gpt.load(argv[1]);
+    adamw.load(argv[1]);
+    int start_iter = atoi(argv[3]);
+    int start_epoch = atoi(argv[2]);
+    gpt.cuda();
+
 
     for (int e = start_epoch; e < 3; ++e) {
         TinyStoriesLoader loader("../data/tok4096/", 128, 256);
@@ -66,7 +65,10 @@ int main(int argc, char* argv[]) {
             }
 
             if (i != 0 && i % 500 == 0) {
-                gpt.save("/home/slg/work/tinyLLM/ckpt/epoch" + std::to_string(e) + "_" + std::to_string(i) + "_" + std::to_string(loss[0]) + "/");
+                string path = "/home/slg/work/tinyLLM/ckpt/epoch" + std::to_string(e) + "_" + std::to_string(i) + "_" + std::to_string(loss[0]) + "/";
+                gpt.save(path);
+                adamw.save(path);
+                
                 std::cout << "model saved" << std::endl;
             }
 
@@ -74,6 +76,7 @@ int main(int argc, char* argv[]) {
         }
         std::cout << "saving model" << std::endl;
         gpt.save("/home/slg/work/tinyLLM/ckpt/0_epoch" + std::to_string(e) + "_" + std::to_string(loss_g) + "/");
+        adamw.save("/home/slg/work/tinyLLM/ckpt/0_epoch" + std::to_string(e) + "_" + std::to_string(loss_g) + "/");
         std::cout << "model saved" << std::endl;
     }
     return 0;

@@ -849,17 +849,40 @@ __global__ void gelu_backward_kernel(float* x1_grad, float* x1_data,
   }
 }
 
-__global__ void before_softmax_kernel(float* x1, index_t dim,
-                                      index_t sum_size) {
-  const int idx = blockIdx.x * blockDim.x + threadIdx.x;
-  if (idx < sum_size) {
-    index_t offset = idx * dim;
-    float max_num = x1[offset];
-    for (int i = 0; i < dim; ++i) {
-      max_num = max(max_num, x1[offset + i]);
+__global__ void before_softmax_kernel(float* x1, int N, index_t dim,
+                               index_t dsize) {
+  const index_t z = blockIdx.z;
+  const index_t y = blockIdx.y;
+  const index_t thread_idx = threadIdx.x;
+
+  const index_t head_offset = z * gridDim.y * dim + y * dim;
+
+  extern __shared__ float data[];
+  for (int i = 0; i < N; ++i) {
+    index_t offset = thread_idx * N + i;
+    if (offset < dim && (head_offset + offset) < dsize) {
+        data[offset] = x1[head_offset + offset];
+    } else {
+      data[offset] = 0;
     }
-    for (int i = 0; i < dim; ++i) {
-      x1[offset + i] -= max_num;
+  }
+  __syncthreads();
+  for (int gap = (blockDim.x * N) >> 1; gap > 0; gap >>= 1) {
+    for (int i = 0; i < N; ++i) {
+      int offset = thread_idx * N + i;
+      if (offset < gap) {
+        data[offset] = max(data[offset], data[offset + gap]);
+      }
+    }
+    __syncthreads();
+  }
+  __syncthreads();
+  float max_num = data[0];
+
+  for (int i = 0; i < N; ++i) {
+    int offset = thread_idx * N + i;
+    if (offset < dim && head_offset + offset < dsize) {
+      x1[head_offset + offset] -= max_num;
     }
   }
 }
@@ -878,11 +901,15 @@ void Softmax::before_softmax(Tensor& x1) {
       }
     }
   } else {
-    index_t dim = x1.shape()[x1.shape().size() - 1];
+    auto shape = x1.shape();
+    const dim3 grid_size(
+        1, shape[shape.size() - 2],
+        x1.dsize() / (shape[shape.size() - 2] * shape[shape.size() - 1]));
     const int block_size = 512;
-    const int grid_size = (x1.dsize() / dim + 511) / 512;
-    before_softmax_kernel<<<grid_size, block_size>>>(x1.data(), dim,
-                                                     x1.dsize() / dim);
+    before_softmax_kernel<<<grid_size, block_size,sizeof(float) *
+                         ((shape[shape.size() - 1] + block_size - 1) /
+                          block_size * block_size)>>>(x1.data(), (shape[shape.size() - 1] + block_size - 1) / block_size,
+        shape[shape.size() - 1], x1.dsize());
     cudaDeviceSynchronize();
     auto error = cudaGetLastError();
     if (cudaSuccess != error) {
@@ -893,7 +920,7 @@ void Softmax::before_softmax(Tensor& x1) {
 }
 
 void Softmax::forward_process(Tensor& x1, Tensor& x) {
-  // before_softmax(x1);
+  before_softmax(x1);
   if (x1.device() == "cpu") {
     index_t dim = x1.shape()[x1.shape().size() - 1];
     for (int b = 0; b < x1.dsize() / dim; ++b) {
@@ -903,7 +930,7 @@ void Softmax::forward_process(Tensor& x1, Tensor& x) {
         exp_sum += exp(x1[offset + i]);
       }
       for (int i = 0; i < dim; ++i) {
-        x[offset + i] = exp(x1[offset + i]) / exp_sum;
+        x[offset + i] = exp(x1[offset + i]) / (exp_sum);
       }
     }
   } else {
@@ -964,9 +991,6 @@ __global__ void softmax_kernel(float* x1, float* x, int N, index_t dim,
     int offset = thread_idx * N + i;
     if (offset < dim && head_offset + offset < dsize) {
       x[head_offset + offset] = exp(x1[head_offset + offset]) / exp_sum;
-      if (x[head_offset + offset] > 1) {
-        printf("%.2f %.2f\n", exp(x1[head_offset + offset]), exp_sum);
-      }
     }
   }
 }

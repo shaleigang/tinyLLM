@@ -15,6 +15,9 @@ public:
 
     void step();
 
+    void save(string path);
+    void load(string path);
+
 private:
     detail::ParamsDict decay_params_;
     detail::ParamsDict nodecay_params_;

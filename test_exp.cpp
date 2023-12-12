@@ -15,7 +15,7 @@ using namespace tllm;
 int main() {
 
     Tokenizer tokenizer("/home/slg/work/tinyLLM/data/tok4096.bin", 4096);
-    Tensor tokens = tokenizer.encode("Once up on a time, there was a man lived in the forest.", 1, 0);
+    Tensor tokens = tokenizer.encode("Once up on a time, there was a man lived in the forest. He is very hungry", 1, 0);
 
     std::cout << tokens.dsize() << std::endl;
     int prev_token = -1;
@@ -23,7 +23,7 @@ int main() {
         string piece = tokenizer.decode(prev_token, tokens[i]);
         prev_token = tokens[i];
         tokenizer.saft_print(piece);
-        std::cout << " ";
+        // std::cout << " ";
     }
     std::cout << std::endl;
 

@@ -1,4 +1,6 @@
 #include <cassert>
+#include <fstream>
+#include <sys/stat.h>
 
 #include "optimizer.h"
 
@@ -174,4 +176,102 @@ void AdamW::step() {
     }
     p.apply_grad();
   }
+}
+
+void AdamW::save(string path) {
+  struct stat st;
+
+    if (stat(path.c_str(), &st) == -1) {
+        if (mkdir(path.c_str(), 0775) == -1) {
+            perror("mkdir error");
+            return;
+        }
+    }
+
+    string bin_path = path + "optimizer.bin";
+    string offset_path = path + "optimizer.index";
+
+    std::ofstream data_out(bin_path, std::ios::binary | std::ios::trunc);
+    std::ofstream offset_out(offset_path, std::ios::trunc);
+
+    data_out.write((char*)&t, sizeof(index_t));
+
+    for (auto iter : decay_params_) {
+        std::shared_ptr<float> data_raw1 = moment1_[iter.first];
+        std::shared_ptr<float> data_raw2 = moment1_[iter.first];
+        index_t len = sizeof(float) * iter.second.get().dsize();
+        offset_out << iter.first << " " << len << std::endl;
+        if (device_ == "cpu") {
+          data_out.write((char*)data_raw1.get(), len);
+          data_out.write((char*)data_raw2.get(), len);
+        }
+        else {
+          float* data = (float*)malloc(len);
+          cudaMemcpy(data, data_raw1.get(), len, cudaMemcpyDeviceToHost);
+          data_out.write((char*)data, len);
+          cudaMemcpy(data, data_raw2.get(), len, cudaMemcpyDeviceToHost);
+          data_out.write((char*)data, len);
+          free(data);
+        }
+    }
+    for (auto iter : nodecay_params_) {
+        std::shared_ptr<float> data_raw1 = moment1_[iter.first];
+        std::shared_ptr<float> data_raw2 = moment1_[iter.first];
+        index_t len = sizeof(float) * iter.second.get().dsize();
+        offset_out << iter.first << " " << len << std::endl;
+        if (device_ == "cpu") {
+          data_out.write((char*)data_raw1.get(), len);
+          data_out.write((char*)data_raw2.get(), len);
+        }
+        else {
+          float* data = (float*)malloc(len);
+          cudaMemcpy(data, data_raw1.get(), len, cudaMemcpyDeviceToHost);
+          data_out.write((char*)data, len);
+          cudaMemcpy(data, data_raw2.get(), len, cudaMemcpyDeviceToHost);
+          data_out.write((char*)data, len);
+          free(data);
+        }
+    }
+    data_out.close();
+    offset_out.close();
+}
+
+void AdamW::load(string path) {
+  if (path == "restart") {
+    return;
+  }
+
+  string bin_path = path + "optimizer.bin";
+    string offset_path = path + "optimizer.index";
+
+    std::ifstream data_in(bin_path, std::ios::binary);
+    std::ifstream offset_in(offset_path);
+
+    if (!data_in.good()) {
+        std::cout << "Can not find bin file in \"" << path << "\"" << std::endl;
+        exit(0);
+    }
+    if (!offset_in.good()) {
+        std::cout << "Can not find index file in \"" << path << "\"" << std::endl;
+        exit(0);
+    }
+
+    data_in.read((char*)&t, sizeof(index_t));
+
+    string name;
+    index_t len;
+    while (offset_in >> name >> len) {
+        if (device_ == "cpu") {
+          data_in.read((char*)moment1_[name].get(), len);
+          data_in.read((char*)moment2_[name].get(), len);
+        }
+        else {
+          float* data = (float*)malloc(len);
+          data_in.read((char*)data, len);
+          cudaMemcpy(moment1_[name].get(), data, len, cudaMemcpyHostToDevice);
+          data_in.read((char*)data, len);
+          cudaMemcpy(moment2_[name].get(), data, len, cudaMemcpyHostToDevice);
+          free(data);
+        }
+    }
 }
