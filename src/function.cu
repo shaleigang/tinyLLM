@@ -226,12 +226,36 @@ __global__ void matmul_kernel(float* x, float* x1, float* x2, index_t z_,
   const int x_offset = id_z * y_ * x_ + id_y * x_ + id_x;
   const int x1_offset = id_z * y_ * d_ + id_y * d_;
   const int x2_offset = id_z * x_ * d_ + id_x * d_;
-  if (id_z < z_ && id_y < y_ && id_x < x_) {
-    x[x_offset] = 0;
-    // printf("%d %d %d %d %d\n", x_offset, id_z, id_y, id_x, gridDim.y);
-    for (int i = 0; i < d_; ++i) {
-      x[x_offset] += x1[x1_offset + i] * x2[(x2_offset + i) % dsize2];
+
+  __shared__ float x1_s[256];
+  __shared__ float x2_s[256];
+  float res = 0;
+
+  for (int N = 0; N < (d_ + 15) / 16; ++N) {
+    if (id_y < y_ && N * 16 + threadIdx.x < d_) {
+      x1_s[threadIdx.y * 16 + threadIdx.x] = x1[x1_offset + N * 16 + threadIdx.x];
     }
+    else {
+      x1_s[threadIdx.y * 16 + threadIdx.x] = 0;
+    }
+
+    if (id_x < x_ && N * 16 + threadIdx.y < d_) {
+      x2_s[threadIdx.x * 16 + threadIdx.y] = x2[(x2_offset + N * 16 + threadIdx.y) % dsize2];
+    }
+    else {
+      x2_s[threadIdx.y * 16 + threadIdx.x] = 0;
+    }
+    __syncthreads();
+
+    for (int i = 0; i < 16; ++i) {
+      res += x1_s[threadIdx.y * 16 + i] * x2_s[threadIdx.x * 16 + i];
+    }
+    __syncthreads();
+  }
+  __syncthreads();
+
+  if (id_z < z_ && id_y < y_ && id_x < x_) {
+    x[x_offset] = res;
   }
 }
 
@@ -300,14 +324,47 @@ __global__ void matmul_backward_kernel(float* x, float* x1, float* x2,
   const int x_offset = id_z * y_ * x_ + id_y * x_ + id_x;
   const int x1_offset = id_z * y_ * d_ + id_y * d_;
   const int x2_offset = id_z * x_ * d_ + id_x * d_;
-  if (id_z < z_ && id_y < y_ && id_x < x_) {
-    for (int i = 0; i < d_; ++i) {
-      atomicAdd(x + x_offset % dsize,
-                x1[(x1_offset + i) % dsize1] * x2[(x2_offset + i) % dsize2]);
-      // printf("%.2f %.2f %.2f %d\n", x[x_offset % dsize], x1[(x1_offset + i) %
-      // dsize1], x2[(x2_offset + i) % dsize2], x_offset);
+
+  __shared__ float x1_s[256];
+  __shared__ float x2_s[256];
+  float res = 0;
+
+  for (int N = 0; N < (d_ + 15) / 16; ++N) {
+    if (id_y < y_ && N * 16 + threadIdx.x < d_) {
+      x1_s[threadIdx.y * 16 + threadIdx.x] = x1[(x1_offset + N * 16 + threadIdx.x) % dsize1];
     }
+    else {
+      x1_s[threadIdx.y * 16 + threadIdx.x] = 0;
+    }
+
+    if (id_x < x_ && N * 16 + threadIdx.y < d_) {
+      x2_s[threadIdx.x * 16 + threadIdx.y] = x2[(x2_offset + N * 16 + threadIdx.y) % dsize2];
+    }
+    else {
+      x2_s[threadIdx.y * 16 + threadIdx.x] = 0;
+    }
+    __syncthreads();
+
+    for (int i = 0; i < 16; ++i) {
+      res += x1_s[threadIdx.y * 16 + i] * x2_s[threadIdx.x * 16 + i];
+    }
+    __syncthreads();
   }
+  __syncthreads();
+
+  if (id_z < z_ && id_y < y_ && id_x < x_) {
+    atomicAdd(x + x_offset % dsize, res);
+  }
+
+
+  // if (id_z < z_ && id_y < y_ && id_x < x_) {
+  //   for (int i = 0; i < d_; ++i) {
+  //     atomicAdd(x + x_offset % dsize,
+  //               x1[(x1_offset + i) % dsize1] * x2[(x2_offset + i) % dsize2]);
+  //     // printf("%.2f %.2f %.2f %d\n", x[x_offset % dsize], x1[(x1_offset + i) %
+  //     // dsize1], x2[(x2_offset + i) % dsize2], x_offset);
+  //   }
+  // }
 }
 
 void MatMulExp::rhs_grad_fn(TensorImplPtr x1, TensorImplPtr x2,
@@ -400,11 +457,11 @@ void LayerNorm::forward_process(Tensor& x1, Tensor& x) {
     const dim3 grid_size(
         1, shape[shape.size() - 2],
         x.dsize() / (shape[shape.size() - 2] * shape[shape.size() - 1]));
-    const int block_size = min(
-        512, (shape[shape.size() - 1] % 2 == 0 ? shape[shape.size() - 1]
-                                               : shape[shape.size() - 1] + 1));
+    const int block_size = 512;
     layer_norm_kernel<<<grid_size, block_size,
-                        sizeof(float) * shape[shape.size() - 1]>>>(
+                        sizeof(float) *
+                         ((shape[shape.size() - 1] + block_size - 1) /
+                          block_size * block_size)>>>(
         x1.data(), x.data(),
         (shape[shape.size() - 1] + block_size - 1) / block_size,
         shape[shape.size() - 1], x.dsize(), ep_);
@@ -428,12 +485,8 @@ __global__ void layer_norm_kernel(float* x1, float* x, int N, index_t dim,
   extern __shared__ float data[];
   for (int i = 0; i < N; ++i) {
     index_t offset = thread_idx * N + i;
-    if (offset < dim) {
-      if ((head_offset + offset) < dsize) {
-        data[offset] = x1[head_offset + offset];
-      } else {
-        data[offset] = 0;
-      }
+    if (offset < dim && (head_offset + offset) < dsize) {
+      data[offset] = x1[head_offset + offset];
     } else {
       data[offset] = 0;
     }
@@ -500,8 +553,7 @@ void LayerNorm::grad_fn(TensorImplPtr x1, TensorImplPtr x) {
       // float a2 = stdev * (accum / dim + ep_);
 
       float grad_accum =
-          std::accumulate(x->grad_ + offset, x->grad_ + offset + dim, 0.0) /
-          (dim * stdev);
+          std::accumulate(x->grad_ + offset, x->grad_ + offset + dim, 0.0);
       grad_accum *= a1;
 
       float grad_data_accum = 0.0;
@@ -520,11 +572,11 @@ void LayerNorm::grad_fn(TensorImplPtr x1, TensorImplPtr x) {
     const dim3 grid_size(
         1, shape[shape.size() - 2],
         x->dsize() / (shape[shape.size() - 2] * shape[shape.size() - 1]));
-    const int block_size = min(
-        512, (shape[shape.size() - 1] % 2 == 0 ? shape[shape.size() - 1]
-                                               : shape[shape.size() - 1] + 1));
+    const int block_size = 512;
     layer_norm_backward_kernel<<<grid_size, block_size,
-                                 sizeof(float) * shape[shape.size() - 1]>>>(
+                                 sizeof(float) *
+                         ((shape[shape.size() - 1] + block_size - 1) /
+                          block_size * block_size)>>>(
         x1->grad_, x1->data_, x->grad_, x->data_,
         (shape[shape.size() - 1] + block_size - 1) / block_size,
         shape[shape.size() - 1], x->dsize(), ep_);
@@ -535,22 +587,7 @@ void LayerNorm::grad_fn(TensorImplPtr x1, TensorImplPtr x) {
       assert(false);
     }
   }
-  // x->to("cpu");
-  // x1->to("cpu");
-  // for (int i = 0; i < x->dsize(); ++i) {
-  //   if (std::isnan(x->grad_[i])) {
-  //     std::cout << "before ln grad has nan." << std::endl;
-  //     exit(0);
-  //   }
-  // }
-  // for (int i = 0; i < x1->dsize(); ++i) {
-  //   if (std::isnan(x1->grad_[i])) {
-  //     std::cout << "after ln grad has nan." << std::endl;
-  //     exit(0);
-  //   }
-  // }
-  // x->to("cuda");
-  // x1->to("cuda");
+
 }
 
 __global__ void layer_norm_backward_kernel(float* x1_grad, float* x1_data,
@@ -653,27 +690,10 @@ __global__ void layer_norm_backward_kernel(float* x1_grad, float* x1_data,
   __syncthreads();
   float grad_data_accum = data[0] * a1;
 
-  // for (int i = 0; i < N; ++i) {
-  //     int offset = thread_idx * N + i;
-  //     if (offset < dim && head_offset + offset < dsize) {
-  //         data[offset] = x1_data[head_offset + offset];
-  //     }
-  //     else {
-  //         data[offset] = 0;
-  //     }
-  // }
-  // __syncthreads();
-
   for (int i = 0; i < N; ++i) {
     int offset = thread_idx * N + i;
     if (offset < dim && head_offset + offset < dsize) {
-      x1_grad[head_offset + offset] += x_grad[head_offset + offset] / stdev;
-      x1_grad[head_offset + offset] +=
-          grad_accum + grad_data_accum * x_data[head_offset + offset];
-      // if (std::isnan(x1_grad[head_offset + offset])) {
-      //   printf("%.2f %.2f %.2f %.2f %.2f\n", stdev, p1, p2,
-      //   x1_data[head_offset + offset], mean);
-      // }
+      x1_grad[head_offset + offset] += (x_grad[head_offset + offset] / stdev + grad_accum + grad_data_accum * x_data[head_offset + offset]);
     }
   }
 }
@@ -893,9 +913,7 @@ void Softmax::forward_process(Tensor& x1, Tensor& x) {
     const dim3 grid_size(
         1, shape[shape.size() - 2],
         x.dsize() / (shape[shape.size() - 2] * shape[shape.size() - 1]));
-    const int block_size = min(
-        512, (shape[shape.size() - 1] % 2 == 0 ? shape[shape.size() - 1]
-                                               : shape[shape.size() - 1] + 1));
+    const int block_size = 512;
     softmax_kernel<<<grid_size, block_size,
                      sizeof(float) *
                          ((shape[shape.size() - 1] + block_size - 1) /
@@ -946,7 +964,9 @@ __global__ void softmax_kernel(float* x1, float* x, int N, index_t dim,
     int offset = thread_idx * N + i;
     if (offset < dim && head_offset + offset < dsize) {
       x[head_offset + offset] = exp(x1[head_offset + offset]) / exp_sum;
-      assert(x[head_offset + offset] <= 1);
+      if (x[head_offset + offset] > 1) {
+        printf("%.2f %.2f\n", exp(x1[head_offset + offset]), exp_sum);
+      }
     }
   }
 }
@@ -970,9 +990,7 @@ void Softmax::grad_fn(TensorImplPtr x1, TensorImplPtr x) {
     const dim3 grid_size(
         1, shape[shape.size() - 2],
         x->dsize() / (shape[shape.size() - 2] * shape[shape.size() - 1]));
-    const int block_size = min(
-        512, (shape[shape.size() - 1] % 2 == 0 ? shape[shape.size() - 1]
-                                               : shape[shape.size() - 1] + 1));
+    const int block_size = 512;
     softmax_backward_kernel<<<grid_size, block_size,
                               3 * sizeof(float) *
                                   ((shape[shape.size() - 1] + block_size - 1) /
@@ -1305,8 +1323,7 @@ void Emb::rhs_grad_fn(TensorImplPtr idx, TensorImplPtr emb, TensorImplPtr x) {
     }
   } else {
     int grid_size = idx->dsize();
-    int block_size = min(512, (emb->shape()[1] % 2 == 0 ? emb->shape()[1]
-                                                        : emb->shape()[1] + 1));
+    int block_size = 512;
     emb_backward_kernel<<<grid_size, block_size>>>(
         idx->data_, emb->grad_, x->grad_,
         (hidden_dim + block_size - 1) / block_size, hidden_dim, idx->dsize());

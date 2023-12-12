@@ -71,6 +71,8 @@ void Module::save(string path) {
         offset_out << iter.first << " " << sizeof(float) * t.dsize() << std::endl;
         data_out.write((char*)t.data(), sizeof(float) * t.dsize());
     }
+    data_out.close();
+    offset_out.close();
     to(old_device);
 }
 
@@ -104,6 +106,8 @@ void Module::load(string path) {
     while (offset_in >> name >> len) {
         data_in.read((char*)params[name].data(), len);
     }
+    data_in.close();
+    offset_in.close();
     to(old_device);
 }
 

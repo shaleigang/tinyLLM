@@ -20,7 +20,6 @@ int main(int argc, char* argv[]) {
     gpt.load(argv[1]);
     int start_iter = atoi(argv[3]);
     int start_epoch = atoi(argv[2]);
-    std::cout << "model loaded." << std::endl;
     gpt.cuda();
 
 
