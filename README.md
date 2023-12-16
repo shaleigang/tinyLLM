@@ -1,5 +1,6 @@
 # tinyLLM
 Train a tiny language model using pure C++ from scratch without any third-party libraries. CUDA is supported.
+
 For learning purposes only.
 # Introduction
 This project implements a simple deep learning framework and trains a tiny language model based on it.
@@ -45,6 +46,8 @@ int main() {
 }
 
 ```
-It is worth noting that this project did not build the code for training a tokenizer. It used the code of Llama2.c to train a tokenizer with a vocab_size of 4096. Moreover, the data used to train the model is also preprocessed with tokenizer. Please refer to the **custom tokenizers** part of [Llama2.c](https://github.com/karpathy/llama2.c) to obtain the corresponding training data file and convert the tokenizer to binary format. The tokenizer of this project uses the same structure as Llama2.c, and the converted tokenizer file can be used directly.
+It is worth noting that this project did not build the code for training a tokenizer. It uses the code of Llama2.c to train a tokenizer with a vocab_size of 4096. Moreover, the data used to train the model is also pretokenizered with the tokenizer.
 
-Unfortunately, there are still some problems with the training of the language model in this project. When the loss drops from 8 to about 3, it will stop declining, and the effect of the model is not very good. I am still working on this...
+Please refer to the **custom tokenizers** part of [Llama2.c](https://github.com/karpathy/llama2.c) to obtain the corresponding training data filea and convert the tokenizer to binary format. The tokenizer of this project uses the same structure as Llama2.c, and the converted tokenizer bin file can be used directly.
+
+Unfortunately, there are still some problems with the training of the language model in this project. When the loss drops from 8 to about 3, it will stop declining, and the performance of the model is not very good. I am still working on this...
