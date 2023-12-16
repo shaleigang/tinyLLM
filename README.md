@@ -1,5 +1,5 @@
 # tinyLLM
-Train a tiny language model using pure C++ from scratch without any third-party libraries. Cuda is supported.
+Train a tiny language model using pure C++ from scratch without any third-party libraries. CUDA is supported.
 For learning purposes only.
 # Introduction
 This project implements a simple deep learning framework and trains a tiny language model based on it.
@@ -9,7 +9,7 @@ The core parts include:
 * Dynamic construction of computational graphs
 * Gradient backpropagation
 
-This project implements some commonly used functions and modules in deep learning, and supports both CPU and GPU.
+<!-- This project implements some commonly used functions and modules in language model, and supports both CPU and GPU.
 |Modules|Functions|
 |:-:|:-:|
 |Linear|+|
@@ -19,7 +19,7 @@ This project implements some commonly used functions and modules in deep learnin
 |LayerNorm|nlloss|
 |CausalSelfAttention|log|
 |TransformerBlock|softmax|
-|Embedding|cross_entropy|
+|Embedding|cross_entropy| -->
 
 # GPT-style LM
 This project refers to [nanoGPT](https://github.com/karpathy/nanoGPT) and [Llama2.c](https://github.com/karpathy/llama2.c) to build a GPT-style language model, trained on the [TinyStories](https://huggingface.co/datasets/roneneldan/TinyStories) dataset. All modules involved in the model, such as **Transformer Block**, **AdamW Optimizer**, **Loss Function**, **Tokenizer**, and **DataLoader**, are all built from scratch using C++.
