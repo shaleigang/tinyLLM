@@ -22,17 +22,13 @@ int main(int argc, char* argv[]) {
 
     Tokenizer tokenizer("/home/slg/work/tinyLLM/data/tok4096.bin", 4096);
 
-    while (true) {
-        std::cout << "User>> ";
-        string text;
-        getline(std::cin, text);
-        if (text == "q") {
-            break;
-        }
-        std::cout << "tllm>> ";
-        gpt.generate(text, tokenizer);
-        std::cout << std::endl;
-    }
+    std::cout << "User>> ";
+    string text;
+    getline(std::cin, text);
+    std::cout << "tllm>> ";
+    std::cout.flush();
+    gpt.generate(text, tokenizer);
+    std::cout << std::endl;
     
 
 

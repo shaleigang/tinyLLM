@@ -70,6 +70,7 @@ void Tokenizer::saft_print(string piece) {
       }
   }
   std::cout << piece;
+  std::cout.flush();
 }
 
 int Tokenizer::str_lookup(string str) {

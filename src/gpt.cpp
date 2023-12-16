@@ -27,7 +27,6 @@ Tensor GPT::forward(Tensor& idx) {
     index_t T = shape[1];
     assert(T < block_size_);
     idx.disable_grad();
-
     Tensor pos_ids = get_pos_ids(T);
     pos_ids.to(device());
     Tensor pos_emb = wpe(pos_ids);
@@ -122,6 +121,7 @@ Tensor GPT::forward(Tensor& idx, Tensor& targets) {
     Tensor pos_emb = wpe(pos_ids);
     Tensor tok_emb = wte(idx);
     Tensor x = tok_emb + pos_emb;
+    
     // Tensor x = drop(tok_emb);
     std::vector<Tensor> vec;
     vec.push_back(std::move(x));

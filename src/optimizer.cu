@@ -119,6 +119,7 @@ void AdamW::step() {
   for (auto& iter : decay_params_) {
     string name = iter.first;
     Tensor& p = iter.second.get();
+    p.get()->recovery(0);
     std::shared_ptr<float> m1 = moment1_[name];
     std::shared_ptr<float> m2 = moment2_[name];
 
@@ -150,6 +151,7 @@ void AdamW::step() {
   for (auto& iter : nodecay_params_) {
     string name = iter.first;
     Tensor& p = iter.second.get();
+    p.get()->recovery(0);
     std::shared_ptr<float> m1 = moment1_[name];
     std::shared_ptr<float> m2 = moment2_[name];
 
@@ -198,7 +200,7 @@ void AdamW::save(string path) {
 
     for (auto iter : decay_params_) {
         std::shared_ptr<float> data_raw1 = moment1_[iter.first];
-        std::shared_ptr<float> data_raw2 = moment1_[iter.first];
+        std::shared_ptr<float> data_raw2 = moment2_[iter.first];
         index_t len = sizeof(float) * iter.second.get().dsize();
         offset_out << iter.first << " " << len << std::endl;
         if (device_ == "cpu") {
@@ -216,7 +218,7 @@ void AdamW::save(string path) {
     }
     for (auto iter : nodecay_params_) {
         std::shared_ptr<float> data_raw1 = moment1_[iter.first];
-        std::shared_ptr<float> data_raw2 = moment1_[iter.first];
+        std::shared_ptr<float> data_raw2 = moment2_[iter.first];
         index_t len = sizeof(float) * iter.second.get().dsize();
         offset_out << iter.first << " " << len << std::endl;
         if (device_ == "cpu") {

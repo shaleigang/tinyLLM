@@ -696,6 +696,7 @@ __global__ void layer_norm_backward_kernel(float* x1_grad, float* x1_data,
       x1_grad[head_offset + offset] += (x_grad[head_offset + offset] / stdev + grad_accum + grad_data_accum * x_data[head_offset + offset]);
     }
   }
+
 }
 
 void Dropout::forward_process(Tensor& x1, Tensor& x) {
